@@ -45,9 +45,10 @@ trend, or Quality History.
 _Avoid_: Dropped frame, skipped capture, failed analysis
 
 **Capture Continuity Break**:
-The condition raised when three consecutive captures from one camera are non-comparable
-— quality-rejected or verdict `material_scene_change`. It is an equipment-class
-condition about the camera, never a claim about the plant, and it names no cause.
+The equipment condition raised when three consecutive automatically scheduled captures
+from one camera are non-comparable — quality-rejected or verdict
+`material_scene_change`. It names no cause or plant condition; manual captures neither
+advance nor reset it.
 _Avoid_: Camera fault, equipment alarm, camera moved
 
 **Vision Checkup**:
@@ -70,6 +71,12 @@ _Avoid_: Camera position, framing bucket
 **Baseline State**:
 The comparison readiness of a Baseline Bucket: `monitoring`, `ready`, or `stale`.
 _Avoid_: Validity flag, baseline confidence
+
+**Plant-Health Calibration**:
+Symptom-specific evidence that a fixed alert policy detects independently labelled real
+episodes while meeting its prospective false-alert budget. Baseline readiness and one
+observed event are not Plant-Health Calibration, and V1 has none.
+_Avoid_: Baseline validity, camera calibrated, synthetic validation
 
 **Anomaly Score**:
 The empirical 0-1 rank of a Camera Snapshot's visual distance within its Baseline

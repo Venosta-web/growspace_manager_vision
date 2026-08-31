@@ -9,6 +9,12 @@ measurements in
 It amends ADR 0004's Framing Epoch trigger and supplies the accepted/rejected outcome
 that ADR 0004 consumes.
 
+Its escalation delivery was settled later by
+[hub#75](https://github.com/Venosta-web/growspace_manager_workspace/issues/75) and
+[Growspace Manager ADR 0044](https://github.com/Venosta-web/growspace_manager/blob/feature/issue-75-alert-evidence/docs/adr/0044-v1-alerts-on-capture-continuity-not-anomaly-scores.md):
+only the Capture Continuity Break alerts in V1; Anomaly Scores and fusion outcomes do
+not.
+
 The Frame Quality Gate decides whether a Camera Snapshot may be scored and whether it
 may enter a Baseline Bucket. It runs in two layers: an **absolute floor** inside
 Growspace Vision, decidable from one image, and **history-relative rails** inside Home
@@ -156,10 +162,12 @@ A rejected capture is a first-class result, distinct from both normal and anomal
 
 ## Escalation: the Capture Continuity Break
 
-Home Assistant counts consecutive **non-comparable** captures per camera, in capture
-order, across light windows: a capture is non-comparable when it is quality-rejected or
-its verdict is `material_scene_change`. `uncertain` does not count; it is inside the
-calibrated tail by construction.
+Home Assistant counts consecutive **non-comparable automatically scheduled** captures
+per camera, in capture order, across light windows: a capture is non-comparable when it
+is quality-rejected or its verdict is `material_scene_change`. `uncertain` does not
+count; it is inside the calibrated tail by construction. A manual capture neither
+advances nor resets the streak, so an ad hoc check cannot manufacture or suppress an
+equipment condition.
 
 **Three consecutive** non-comparable captures raise one Capture Continuity Break. At the
 settled three captures per day that is within a single day, while a single capture
@@ -170,12 +178,16 @@ below any plausible chance run. Every real event in the corpus ran 4 to 13 captu
 one per day, which is 12 to 39 at production cadence.
 
 One break is raised per streak, not per capture, and the streak ends on the first
-comparable capture. The break names the equipment, not the plant: *this camera's
-captures no longer match its own recent history*. It never asserts a cause, because the
-measurements above show the cause cannot be identified, and it never asserts anything
-about plant health. Whether and how it reaches the grower as a Triage Alert belongs to
-[hub#75](https://github.com/Venosta-web/growspace_manager_workspace/issues/75); this
-decision owns the condition, not the delivery.
+automatically scheduled comparable capture. The break names the equipment, not the
+plant: *this camera's captures no longer match its own recent history*. It never
+asserts a cause, because the measurements above show the cause cannot be identified,
+and it never asserts anything about plant health.
+
+The third capture creates one `capture_continuity_break` warning Triage Alert and one
+warning-tier Home Assistant notification. Later captures in the streak produce no
+duplicate. The comparable capture that clears the active condition re-arms a future
+streak but does not resolve the durable alert on the grower's behalf. The alert carries
+camera and streak evidence and no Bayesian probability or AI-generated reasoning.
 
 ## Where each part runs, and why not otherwise
 
