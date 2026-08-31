@@ -26,6 +26,30 @@ The non-plant image measurements and any unusable-frame reasons returned by a Vi
 Analysis.
 _Avoid_: Plant evidence, health evidence
 
+**Frame Quality Gate**:
+The two-layer decision that admits or rejects a Camera Snapshot: an absolute floor
+applied by Growspace Vision to one image, and history-relative rails applied by Home
+Assistant against the camera's Quality History.
+_Avoid_: Image validation, sanity check, preflight
+
+**Quality History**:
+The trailing 30 accepted captures' Frame Quality Result signals for one camera, across
+light windows, against which the relative rails are evaluated. Rejected captures never
+enter it.
+_Avoid_: Quality baseline, exposure baseline
+
+**Unusable Capture**:
+A Camera Snapshot the Frame Quality Gate rejected. It is a first-class outcome with its
+own reasons, it produces no Visual Comparison Result, and it enters no Baseline Bucket,
+trend, or Quality History.
+_Avoid_: Dropped frame, skipped capture, failed analysis
+
+**Capture Continuity Break**:
+The condition raised when three consecutive captures from one camera are non-comparable
+— quality-rejected or verdict `material_scene_change`. It is an equipment-class
+condition about the camera, never a claim about the plant, and it names no cause.
+_Avoid_: Camera fault, equipment alarm, camera moved
+
 **Vision Checkup**:
 The Home Assistant workflow that captures Camera Snapshots, requests Vision Analyses,
 compares accepted embeddings with a Baseline Bucket, and records a Visual Comparison
@@ -39,7 +63,8 @@ _Avoid_: Vision-service baseline, global baseline
 
 **Framing Epoch**:
 A period in which one camera's physical framing is treated as materially unchanged.
-A detected camera move or a manual visual-baseline restart begins another epoch.
+A manual visual-baseline restart begins another epoch. V1 has no automatic camera-move
+detection: the structural signature cannot separate a move from a lens occlusion.
 _Avoid_: Camera position, framing bucket
 
 **Baseline State**:
