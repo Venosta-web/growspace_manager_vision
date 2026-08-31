@@ -2,17 +2,18 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import asyncio
+from collections.abc import Sequence
 from threading import Lock
-from typing import Protocol
+from typing import Any, Protocol
 
-
-@dataclass(frozen=True, slots=True)
-class AnalysisInput:
-    """Raw HTTP payload awaiting the contract parser added by the endpoint ticket."""
-
-    body: bytes
-    content_type: str
+from growspace_vision.contract import (
+    build_analyzed_response,
+    build_rejected_response,
+)
+from growspace_vision.images import DecodedImage, decode_image
+from growspace_vision.metadata import AnalyzeMetadata
+from growspace_vision.quality import frame_quality_reasons, measure_quality_signals
 
 
 class Analyzer(Protocol):
@@ -34,8 +35,8 @@ class Analyzer(Protocol):
     def embedding_dimension(self) -> int:
         """Return the output vector dimension."""
 
-    async def analyze(self, request: AnalysisInput) -> dict[str, object]:
-        """Analyze one request after HTTP orchestration admits it."""
+    async def embed(self, image: DecodedImage) -> Sequence[float]:
+        """Embed one frame the Frame Quality Gate has already accepted."""
 
 
 class UnavailableAnalyzer:
@@ -46,8 +47,41 @@ class UnavailableAnalyzer:
     model_version = "1.0.0"
     embedding_dimension = 384
 
-    async def analyze(self, request: AnalysisInput) -> dict[str, object]:
+    async def embed(self, image: DecodedImage) -> Sequence[float]:
+        """Refuse inference, which the HTTP layer never reaches while unready."""
+
         raise RuntimeError("model is unavailable")
+
+
+async def analyze_frame(
+    *,
+    request_id: str,
+    metadata: AnalyzeMetadata,
+    image_body: bytes,
+    analyzer: Analyzer,
+) -> dict[str, Any]:
+    """Decode one frame, apply the absolute floor, and infer only if it passes.
+
+    Inference is the expensive half and a rejected frame never reaches it: an
+    absolute floor exists precisely so a black frame costs no model. Decoding and
+    measurement are pixel-bound work and run off the event loop so the App's single
+    inference slot and its deadline stay honest.
+    """
+
+    image = await asyncio.to_thread(decode_image, image_body)
+    signals = await asyncio.to_thread(measure_quality_signals, image)
+    reasons = frame_quality_reasons(signals, metadata.light_state)
+    if reasons:
+        return build_rejected_response(
+            request_id=request_id, signals=signals, reasons=reasons
+        )
+    return build_analyzed_response(
+        request_id=request_id,
+        model_id=analyzer.model_id,
+        model_version=analyzer.model_version,
+        embedding=await analyzer.embed(image),
+        signals=signals,
+    )
 
 
 class InferenceSlot:
