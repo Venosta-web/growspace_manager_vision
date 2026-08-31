@@ -33,9 +33,28 @@ Result.
 _Avoid_: Vision Analysis
 
 **Baseline Bucket**:
-The Home Assistant-owned recent history for one camera, light window, Grow Run, and
-model version against which Visual Embeddings may be compared.
+The Home Assistant-owned rolling recent history for one camera, light window, Grow
+Run, model version, and Framing Epoch against which Visual Embeddings may be compared.
 _Avoid_: Vision-service baseline, global baseline
+
+**Framing Epoch**:
+A period in which one camera's physical framing is treated as materially unchanged.
+A detected camera move or a manual visual-baseline restart begins another epoch.
+_Avoid_: Camera position, framing bucket
+
+**Baseline State**:
+The comparison readiness of a Baseline Bucket: `monitoring`, `ready`, or `stale`.
+_Avoid_: Validity flag, baseline confidence
+
+**Anomaly Score**:
+The empirical 0-1 rank of a Camera Snapshot's visual distance within its Baseline
+Bucket. It describes departure from recent scene history, not plant health or risk.
+_Avoid_: Health score, risk score, model probability
+
+**Comparison Confidence**:
+The separation margin between a Visual Comparison Result and its Baseline Bucket's
+uncertain band. It is not plant-health probability or model self-confidence.
+_Avoid_: Health confidence, model confidence
 
 **Visual Comparison Result**:
 The Home Assistant-owned result of interpreting a Vision Analysis against temporal
