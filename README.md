@@ -90,10 +90,36 @@ growspace-vision
 version. The process deliberately ignores environmental observations; none belongs in
 the service configuration or request boundary.
 
-The checked-in Dockerfile is the executable container skeleton on the pinned Home
-Assistant Debian base. The App-packaging ticket supplies the verified model and replaces
-the online package install with the hash-complete, architecture-specific wheelhouse and
-licence bundle required for the final no-network build.
+## Home Assistant App images
+
+The [`growspace_vision/config.yaml`](growspace_vision/config.yaml) wrapper exposes only
+the internal App-network API and translates its required `access_token` option into the
+service's bearer-token configuration. It requests no host mounts, device access,
+Supervisor or Home Assistant API permission, Ingress, or published host port.
+
+The image build is deliberately split at the network boundary. Preparation downloads
+only the URLs in `packaging/locks/{amd64,arm64}.lock`, verifies every size and SHA-256,
+and materializes an ignored `.build-inputs/<arch>` directory. Docker then consumes the
+exact closed set under `--network none`, installs the dated Debian and hash-complete
+wheel closures locally, and bundles the verified model, licence material, notices, and
+an architecture-specific SPDX SBOM.
+
+Build and smoke both images:
+
+```bash
+./scripts/build-app-images.sh all
+```
+
+The smoke gate starts each target architecture with a read-only root filesystem and
+`--network none`, checks the architecture from inside the container, then exercises
+`/health`, `/info`, `/models`, and a real `/analyze` request. arm64 execution under QEMU
+is a compatibility check only; physical ARM latency and memory remain unmeasured.
+
+Home Assistant's current App builder no longer reads `build.yaml`; the pinned
+multi-architecture base, build arguments, and labels therefore live directly in the
+Dockerfile. [`repository.yaml`](repository.yaml) makes this repository discoverable as
+an App repository, while the generic image reference in `config.yaml` is ready for the
+separate publication gate.
 
 ## Verify the V1 contract
 
