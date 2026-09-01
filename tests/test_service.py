@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import unittest
 from collections.abc import Sequence
@@ -18,6 +19,8 @@ from support import (
     MODEL_VERSION,
     ReadyAnalyzer,
     analyze_request,
+    assert_matches_contract_response,
+    load_contract_fixture,
     load_fixture,
     metadata_json,
     usable_frame,
@@ -49,6 +52,11 @@ class BlockingAnalyzer(ReadyAnalyzer):
 class FailingAnalyzer(ReadyAnalyzer):
     async def embed(self, image: DecodedImage) -> Sequence[float]:
         raise RuntimeError("test-secret /private/model.onnx")
+
+
+class WrongDimensionAnalyzer(ReadyAnalyzer):
+    async def embed(self, image: DecodedImage) -> Sequence[float]:
+        return [0.0] * (EMBEDDING_DIMENSION - 1)
 
 
 class BrokenReadinessAnalyzer:
@@ -171,10 +179,49 @@ class GrowspaceVisionServiceTest(unittest.IsolatedAsyncioTestCase):
             "/analyze", headers=BEARER, **analyze_request(usable_frame())
         )
 
+        assert_matches_contract_response(response, "/analyze", "post")
         self.assertEqual(response.status_code, 503)
-        self.assertEqual(response.json()["error"]["code"], "model_not_loaded")
+        body = response.json()
+        expected = load_fixture("error-model-not-loaded.json")
+        expected["request_id"] = body["request_id"]
+        self.assertEqual(body, expected)
 
-    async def test_analysis_refuses_a_model_this_process_did_not_load(self) -> None:
+    async def test_analysis_requires_bearer_authentication(self) -> None:
+        response = await self.client.post("/analyze", **analyze_request(usable_frame()))
+
+        assert_matches_contract_response(response, "/analyze", "post")
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(
+            response.json()["error"],
+            {"code": "unauthorized", "message": "Authentication required"},
+        )
+
+    async def test_analysis_rejects_every_negative_metadata_fixture(self) -> None:
+        manifest = load_contract_fixture("manifest.json")
+        fixtures = [
+            entry
+            for entry in manifest["invalid"]
+            if entry["schema"] == "AnalyzeMetadata"
+        ]
+
+        async with self.client_for(ReadyAnalyzer()) as client:
+            for fixture in fixtures:
+                with self.subTest(fixture=fixture["file"]):
+                    metadata = load_contract_fixture(fixture["file"])
+                    response = await client.post(
+                        "/analyze",
+                        **analyze_request(
+                            usable_frame(), metadata=json.dumps(metadata)
+                        ),
+                    )
+
+                    assert_matches_contract_response(response, "/analyze", "post")
+                    self.assertEqual(response.status_code, 422)
+                    self.assertEqual(
+                        response.json()["error"]["code"], "invalid_request"
+                    )
+
+    async def test_analysis_rejects_an_unknown_model_identity(self) -> None:
         async with self.client_for(ReadyAnalyzer()) as client:
             response = await client.post(
                 "/analyze",
@@ -183,14 +230,28 @@ class GrowspaceVisionServiceTest(unittest.IsolatedAsyncioTestCase):
                 ),
             )
 
-        self.assertEqual(response.status_code, 503)
+        assert_matches_contract_response(response, "/analyze", "post")
+        self.assertEqual(response.status_code, 422)
         self.assertEqual(
             response.json()["error"],
             {
-                "code": "model_not_loaded",
-                "message": "The requested model is not loaded",
+                "code": "invalid_request",
+                "message": "Requested model is unknown",
             },
         )
+
+    async def test_analysis_rejects_an_unknown_model_while_unavailable(self) -> None:
+        response = await self.client.post(
+            "/analyze",
+            headers=BEARER,
+            **analyze_request(
+                usable_frame(), metadata=metadata_json(model_version="2.0.0")
+            ),
+        )
+
+        assert_matches_contract_response(response, "/analyze", "post")
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.json()["error"]["code"], "invalid_request")
 
     async def test_analysis_requires_a_multipart_body(self) -> None:
         async with self.client_for(ReadyAnalyzer()) as client:
@@ -200,6 +261,7 @@ class GrowspaceVisionServiceTest(unittest.IsolatedAsyncioTestCase):
                 headers={"Content-Type": "application/octet-stream"},
             )
 
+        assert_matches_contract_response(response, "/analyze", "post")
         self.assertEqual(response.status_code, 422)
         self.assertEqual(
             response.json()["error"],
@@ -225,6 +287,7 @@ class GrowspaceVisionServiceTest(unittest.IsolatedAsyncioTestCase):
                 with self.subTest(parts=sorted(body)):
                     response = await client.post("/analyze", **body)
 
+                    assert_matches_contract_response(response, "/analyze", "post")
                     self.assertEqual(response.status_code, 422)
                     self.assertEqual(
                         response.json()["error"]["code"], "invalid_request"
@@ -239,6 +302,7 @@ class GrowspaceVisionServiceTest(unittest.IsolatedAsyncioTestCase):
                 ),
             )
 
+        assert_matches_contract_response(response, "/analyze", "post")
         self.assertEqual(response.status_code, 422)
         self.assertEqual(
             response.json()["error"],
@@ -254,6 +318,7 @@ class GrowspaceVisionServiceTest(unittest.IsolatedAsyncioTestCase):
         ) as client:
             response = await client.post("/analyze", **analyze_request(usable_frame()))
 
+        assert_matches_contract_response(response, "/analyze", "post")
         self.assertEqual(response.status_code, 500)
         body = response.json()
         self.assertEqual(
@@ -280,6 +345,8 @@ class GrowspaceVisionServiceTest(unittest.IsolatedAsyncioTestCase):
             analyzer.release.set()
             first_response = await first_request
 
+        assert_matches_contract_response(first_response, "/analyze", "post")
+        assert_matches_contract_response(concurrent_response, "/analyze", "post")
         self.assertEqual(first_response.status_code, 200)
         self.assertEqual(concurrent_response.status_code, 429)
         self.assertEqual(concurrent_response.headers["Retry-After"], "1")
@@ -292,6 +359,7 @@ class GrowspaceVisionServiceTest(unittest.IsolatedAsyncioTestCase):
         async with self.client_for(FailingAnalyzer()) as client:
             response = await client.post("/analyze", **analyze_request(usable_frame()))
 
+        assert_matches_contract_response(response, "/analyze", "post")
         self.assertEqual(response.status_code, 500)
         body = response.json()
         self.assertEqual(
@@ -300,6 +368,17 @@ class GrowspaceVisionServiceTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertNotIn("test-secret", response.text)
         self.assertNotIn("/private/model.onnx", response.text)
+
+    async def test_analysis_refuses_an_embedding_with_the_wrong_dimension(self) -> None:
+        async with self.client_for(WrongDimensionAnalyzer()) as client:
+            response = await client.post("/analyze", **analyze_request(usable_frame()))
+
+        assert_matches_contract_response(response, "/analyze", "post")
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(
+            response.json()["error"],
+            {"code": "internal_failure", "message": "Analysis failed"},
+        )
 
     async def test_unknown_route_uses_the_closed_error_shape(self) -> None:
         response = await self.client.get("/unknown", headers=BEARER)
@@ -398,6 +477,7 @@ class ProductionArtifactServiceTest(unittest.IsolatedAsyncioTestCase):
             models = await client.get("/models?schema_version=1")
             analysis = await client.post("/analyze", **analyze_request(usable_frame()))
 
+        assert_matches_contract_response(analysis, "/analyze", "post")
         self.assertEqual(health.status_code, 200)
         self.assertEqual(models.json()["models"][0]["state"], "loaded")
         self.assertEqual(analysis.status_code, 200)

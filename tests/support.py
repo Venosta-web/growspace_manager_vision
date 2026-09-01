@@ -9,15 +9,19 @@ from pathlib import Path
 from typing import Any, cast
 
 import numpy as np
+from httpx import Response
 from numpy.typing import NDArray
 from PIL import Image
-from test_growspace_vision_contract import OPENAPI_PATH, OpenApiFixtureValidator
+from test_growspace_vision_contract import (
+    OPENAPI_PATH,
+    ContractValidationError,
+    OpenApiFixtureValidator,
+)
 
 from growspace_vision.images import DecodedImage
 
 ROOT = Path(__file__).parents[1]
 FIXTURE_DIR = ROOT / "contracts" / "growspace-vision" / "v1" / "fixtures"
-VALID_FIXTURES = FIXTURE_DIR / "valid"
 
 MODEL_ID = "dinov2-vit-s-14-int8-onnx"
 MODEL_VERSION = "1.0.0"
@@ -31,9 +35,15 @@ REMOVED = object()
 def load_fixture(name: str) -> dict[str, Any]:
     """Load an independently maintained normative contract fixture."""
 
+    return load_contract_fixture(f"valid/{name}")
+
+
+def load_contract_fixture(relative_path: str) -> dict[str, Any]:
+    """Load one fixture by its manifest-relative path."""
+
     return cast(
         dict[str, Any],
-        json.loads((VALID_FIXTURES / name).read_text(encoding="utf-8")),
+        json.loads((FIXTURE_DIR / relative_path).read_text(encoding="utf-8")),
     )
 
 
@@ -129,9 +139,42 @@ def analyze_request(
     }
 
 
-def assert_matches_analyze_response(payload: Any) -> None:
-    """Validate a live response against the normative V1 AnalyzeResponse schema."""
+def assert_matches_contract_response(
+    response: Response, path: str, method: str
+) -> None:
+    """Validate one live HTTP response against its normative OpenAPI operation."""
 
     document = json.loads(OPENAPI_PATH.read_text(encoding="utf-8"))
     validator = OpenApiFixtureValidator(document)
-    validator.validate(payload, document["components"]["schemas"]["AnalyzeResponse"])
+    responses = document["paths"][path][method]["responses"]
+    status = str(response.status_code)
+    if status not in responses:
+        raise ContractValidationError(
+            f"{method.upper()} {path} returned undeclared status {status}"
+        )
+    response_spec = responses[status]
+    if "$ref" in response_spec:
+        response_spec = validator._resolve(response_spec["$ref"])
+    media_type = response.headers.get("content-type", "").partition(";")[0]
+    if media_type != "application/json":
+        raise ContractValidationError(
+            f"{method.upper()} {path} returned {media_type!r}, "
+            "expected application/json"
+        )
+    schema = response_spec["content"]["application/json"]["schema"]
+    validator.validate(response.json(), schema)
+
+    for name, header_spec in response_spec.get("headers", {}).items():
+        if name not in response.headers:
+            raise ContractValidationError(
+                f"{method.upper()} {path} omitted declared response header {name}"
+            )
+        value: Any = response.headers[name]
+        if header_spec["schema"].get("type") == "integer":
+            try:
+                value = int(value)
+            except ValueError as error:
+                raise ContractValidationError(
+                    f"{method.upper()} {path} returned non-integer header {name}"
+                ) from error
+        validator.validate(value, header_spec["schema"], f"$.headers.{name}")

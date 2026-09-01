@@ -75,11 +75,14 @@ async def analyze_frame(
         return build_rejected_response(
             request_id=request_id, signals=signals, reasons=reasons
         )
+    embedding = await analyzer.embed(image)
+    if len(embedding) != analyzer.embedding_dimension:
+        raise RuntimeError("analyzer returned an unexpected embedding dimension")
     return build_analyzed_response(
         request_id=request_id,
         model_id=analyzer.model_id,
         model_version=analyzer.model_version,
-        embedding=await analyzer.embed(image),
+        embedding=embedding,
         signals=signals,
     )
 
