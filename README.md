@@ -30,13 +30,14 @@ The production service is an ASGI application with one public construction seam:
 - closed, request-correlated errors that do not expose tokens, paths, tracebacks, image
   bytes, or request metadata.
 
-`POST /analyze` takes one closed `metadata` part and one JPEG or PNG `image` part. It
-refuses anything else before measuring: a body above 10 MiB or 24 megapixels is
-`413 image_too_large`, a format that is neither JPEG nor PNG is
-`415 unsupported_image_format`, an undecodable body or metadata outside the contract is
-`422`, and a model the process did not load is `503 model_not_loaded`. A request must
-declare its `Content-Length`; that is the only bound the service can apply before
-reading a body.
+`POST /analyze` takes one closed `metadata` part and one `image` part advertised and
+decoded as JPEG or PNG. It refuses anything else before measuring: a body above 10 MiB
+or 24 megapixels is `413 image_too_large`, an unsupported part media type or decoded
+format is `415 unsupported_image_format`, and an undecodable body or metadata outside
+the contract is `422`. An unknown model identity is also `422 invalid_request`; the
+configured model being unavailable is `503 model_not_loaded`. A request must declare
+its `Content-Length`; that is the only bound the service can apply before reading a
+body.
 
 ### The absolute frame quality floor
 

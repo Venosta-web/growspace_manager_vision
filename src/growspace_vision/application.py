@@ -41,6 +41,7 @@ from growspace_vision.settings import ServiceSettings
 MULTIPART_OVERHEAD_ALLOWANCE: Final = 64 * 1024
 MAX_REQUEST_BYTES: Final = MAX_IMAGE_BYTES + MULTIPART_OVERHEAD_ALLOWANCE
 _ANALYZE_PARTS: Final = frozenset({"metadata", "image"})
+_IMAGE_MEDIA_TYPES: Final = frozenset({"image/jpeg", "image/png"})
 
 
 class InvalidAnalyzeRequest(ValueError):
@@ -196,13 +197,6 @@ def create_app(
     @app.post("/analyze")
     async def analyze(request: Request) -> JSONResponse:
         request_id = request.state.request_id
-        if not active_analyzer.ready:
-            return error_response(
-                status_code=503,
-                request_id=request_id,
-                code="model_not_loaded",
-                message="Model is not loaded",
-            )
         declared_length = _declared_body_length(request)
         if declared_length is None:
             return error_response(
@@ -231,6 +225,13 @@ def create_app(
                 metadata_body, image_body = await _read_analyze_parts(request)
                 metadata = parse_metadata(metadata_body)
                 if not _names_the_loaded_model(metadata, active_analyzer):
+                    return error_response(
+                        status_code=422,
+                        request_id=request_id,
+                        code="invalid_request",
+                        message="Requested model is unknown",
+                    )
+                if not active_analyzer.ready:
                     return error_response(
                         status_code=503,
                         request_id=request_id,
@@ -315,6 +316,9 @@ async def _read_analyze_parts(request: Request) -> tuple[bytes, bytes]:
         image = form["image"]
         if not isinstance(image, UploadFile):
             raise InvalidAnalyzeRequest("Image part must be sent as a file")
+        image_media_type = (image.content_type or "").partition(";")[0].strip().lower()
+        if image_media_type not in _IMAGE_MEDIA_TYPES:
+            raise UnsupportedImageFormat
         metadata = form["metadata"]
         metadata_body = (
             await metadata.read()

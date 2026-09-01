@@ -21,7 +21,7 @@ from support import (
     REMOVED,
     ReadyAnalyzer,
     analyze_request,
-    assert_matches_analyze_response,
+    assert_matches_contract_response,
     clipped_frame,
     encode,
     load_fixture,
@@ -72,8 +72,7 @@ class FrameQualityFloorTest(unittest.IsolatedAsyncioTestCase):
         response = await self.client.post(
             "/analyze", **analyze_request(image, **options)
         )
-        if response.status_code == 200:
-            assert_matches_analyze_response(response.json())
+        assert_matches_contract_response(response, "/analyze", "post")
         return response
 
     async def accepted(self, image: bytes, **options: Any) -> dict[str, Any]:
@@ -209,6 +208,16 @@ class FrameQualityFloorTest(unittest.IsolatedAsyncioTestCase):
             },
         )
 
+    async def test_an_image_part_with_an_unsupported_media_type_is_refused(
+        self,
+    ) -> None:
+        response = await self.analyze(
+            usable_frame(), content_type="application/octet-stream"
+        )
+
+        self.assertEqual(response.status_code, 415)
+        self.assertEqual(response.json()["error"]["code"], "unsupported_image_format")
+
     async def test_a_body_that_is_not_an_image_is_refused_as_a_format(self) -> None:
         response = await self.analyze(b"this is not an image")
 
@@ -243,6 +252,7 @@ class FrameQualityFloorTest(unittest.IsolatedAsyncioTestCase):
             headers={"Content-Type": "multipart/form-data; boundary=x"},
         )
 
+        assert_matches_contract_response(response, "/analyze", "post")
         self.assertEqual(response.status_code, 413)
         self.assertEqual(response.json()["error"]["code"], "image_too_large")
 
@@ -256,6 +266,7 @@ class FrameQualityFloorTest(unittest.IsolatedAsyncioTestCase):
             headers={"Content-Type": "multipart/form-data; boundary=x"},
         )
 
+        assert_matches_contract_response(response, "/analyze", "post")
         self.assertEqual(response.status_code, 422)
         self.assertEqual(
             response.json()["error"],
