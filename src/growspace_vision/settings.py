@@ -2,6 +2,7 @@
 
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Self
 
 
@@ -11,6 +12,7 @@ class ServiceSettings:
 
     bearer_token: str = field(repr=False)
     service_version: str = "1.0.0"
+    model_path: Path = Path("/opt/growspace-vision/models/model_int8.onnx")
 
     @classmethod
     def from_env(cls) -> Self:
@@ -22,6 +24,12 @@ class ServiceSettings:
         return cls(
             bearer_token=token,
             service_version=os.environ.get("GROWSPACE_VISION_SERVICE_VERSION", "1.0.0"),
+            model_path=Path(
+                os.environ.get(
+                    "GROWSPACE_VISION_MODEL_PATH",
+                    "/opt/growspace-vision/models/model_int8.onnx",
+                )
+            ),
         )
 
     def __post_init__(self) -> None:
