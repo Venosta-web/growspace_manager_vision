@@ -6,6 +6,7 @@ import asyncio
 import os
 import unittest
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
@@ -327,6 +328,7 @@ class GrowspaceVisionServiceTest(unittest.IsolatedAsyncioTestCase):
             {
                 "GROWSPACE_VISION_TOKEN": "configured-secret",
                 "GROWSPACE_VISION_SERVICE_VERSION": "1.2.3",
+                "GROWSPACE_VISION_MODEL_PATH": "/models/model_int8.onnx",
                 "UNRELATED_SECRET": "must-not-be-read",
             },
             clear=True,
@@ -335,6 +337,7 @@ class GrowspaceVisionServiceTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(settings.bearer_token, "configured-secret")
         self.assertEqual(settings.service_version, "1.2.3")
+        self.assertEqual(settings.model_path, Path("/models/model_int8.onnx"))
 
     def test_process_configuration_does_not_render_the_bearer_token(self) -> None:
         settings = ServiceSettings(bearer_token="test-secret")
@@ -366,6 +369,40 @@ class GrowspaceVisionServiceTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.json()["error"]["code"], "model_not_loaded")
+
+
+@unittest.skipUnless(
+    os.environ.get("GROWSPACE_VISION_TEST_MODEL_PATH"),
+    "the verified production artifact was not supplied locally",
+)
+class ProductionArtifactServiceTest(unittest.IsolatedAsyncioTestCase):
+    async def test_process_startup_serves_one_real_vision_analysis(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "GROWSPACE_VISION_TOKEN": "test-secret",
+                "GROWSPACE_VISION_MODEL_PATH": os.environ[
+                    "GROWSPACE_VISION_TEST_MODEL_PATH"
+                ],
+            },
+            clear=True,
+        ):
+            app = application()
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://vision.test",
+            headers=BEARER,
+        ) as client:
+            health = await client.get("/health")
+            models = await client.get("/models?schema_version=1")
+            analysis = await client.post("/analyze", **analyze_request(usable_frame()))
+
+        self.assertEqual(health.status_code, 200)
+        self.assertEqual(models.json()["models"][0]["state"], "loaded")
+        self.assertEqual(analysis.status_code, 200)
+        self.assertEqual(analysis.json()["status"], "analyzed")
+        self.assertEqual(analysis.json()["embedding"]["dimension"], 384)
 
 
 if __name__ == "__main__":

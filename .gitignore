@@ -206,6 +206,12 @@ tempCodeRunnerFile.py
 # Ruff stuff:
 .ruff_cache/
 
+# Production model bytes are prepared and verified outside git.
+*.onnx
+
+# ONNX Runtime may attempt to persist a local telemetry session identifier.
+:memory:.ses
+
 # PyPI configuration file
 .pypirc
 

@@ -16,7 +16,6 @@ from starlette.responses import Response
 from growspace_vision.analysis import (
     Analyzer,
     InferenceSlot,
-    UnavailableAnalyzer,
     analyze_frame,
 )
 from growspace_vision.contract import build_info_response, build_models_response
@@ -33,6 +32,7 @@ from growspace_vision.metadata import (
     parse_metadata,
 )
 from growspace_vision.responses import error_response
+from growspace_vision.runtime import load_production_analyzer
 from growspace_vision.settings import ServiceSettings
 
 # The image is bounded by the contract; the envelope around it is not, so the
@@ -85,7 +85,7 @@ def create_app(
 ) -> FastAPI:
     """Create an isolated service application from explicit settings."""
 
-    active_analyzer = analyzer or UnavailableAnalyzer()
+    active_analyzer = analyzer or load_production_analyzer(settings.model_path)
     inference_slot = InferenceSlot()
     if inference_timeout_seconds <= 0:
         raise ValueError("inference_timeout_seconds must be positive")

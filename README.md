@@ -61,14 +61,27 @@ History; the service holds no history and applies only the rejections that need 
 These thresholds are service behaviour, not wire shape: they move with
 `service_version`, never with `schema_version`.
 
-The service intentionally starts with its model unavailable. The DINOv2 runtime ticket
-supplies the analyzer behind the accepted branch; until then `/health` and `/analyze`
-return `503 model_not_loaded` while `/info` and `/models` remain usable for negotiation.
+### The bundled DINOv2 runtime
+
+The process loads only the local model named by `GROWSPACE_VISION_MODEL_PATH` (default
+`/opt/growspace-vision/models/model_int8.onnx`). The checked-in manifest fixes the
+`onnx-community/dinov2-small` int8 artifact bytes, model identity, whole-frame
+`224 x 168` bicubic preprocessing, ImageNet normalization, CLS-token selection,
+384-value output, and float64 L2 normalization. ONNX Runtime 1.29.0 runs with only the
+CPU provider, four intra-op threads, one inter-op thread, and full graph optimization.
+
+Startup verifies the artifact's 24,446,700-byte size and SHA-256 before constructing an
+ONNX session, then checks the graph's input/output identity. A missing, altered,
+unloadable, or incompatible model leaves `/health` unready and `/models` unavailable;
+the service never downloads a fallback. Cancellation at the ten-second service
+deadline terminates the active ONNX run before the one-slot inference boundary is
+released.
 
 Set the per-install token and start one worker on the internal port:
 
 ```bash
 export GROWSPACE_VISION_TOKEN="replace-with-a-generated-token"
+export GROWSPACE_VISION_MODEL_PATH="/path/to/verified/model_int8.onnx"
 growspace-vision
 ```
 
@@ -77,9 +90,9 @@ version. The process deliberately ignores environmental observations; none belon
 the service configuration or request boundary.
 
 The checked-in Dockerfile is the executable container skeleton on the pinned Home
-Assistant Debian base. The App-packaging ticket replaces its online package install
-with the hash-complete, architecture-specific wheelhouse and licence bundle required
-for the final no-network build.
+Assistant Debian base. The App-packaging ticket supplies the verified model and replaces
+the online package install with the hash-complete, architecture-specific wheelhouse and
+licence bundle required for the final no-network build.
 
 ## Verify the V1 contract
 
@@ -89,6 +102,14 @@ Create an isolated environment, install the service test extra, and run the full
 python3 -m venv .venv
 .venv/bin/python -m pip install -e '.[test]'
 PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -v
+```
+
+The suite never fetches a model. To run the exact-artifact golden and process-startup
+tests, prepare the locked bytes separately and provide their local path:
+
+```bash
+GROWSPACE_VISION_TEST_MODEL_PATH=/path/to/verified/model_int8.onnx \
+  PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -v
 ```
 
 `tests/test_growspace_vision_contract.py` remains dependency-free when run on its own
