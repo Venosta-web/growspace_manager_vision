@@ -93,9 +93,16 @@ the service configuration or request boundary.
 ## Home Assistant App images
 
 The [`growspace_vision/config.yaml`](growspace_vision/config.yaml) wrapper exposes only
-the internal App-network API and translates its required `access_token` option into the
-service's bearer-token configuration. It requests no host mounts, device access,
-Supervisor or Home Assistant API permission, Ingress, or published host port.
+the internal App-network API. It requests no host mounts, device access, Supervisor or
+Home Assistant API permission, Ingress, or published host port.
+
+Because it publishes no host port, the App also owns its own credential.
+[`growspace_vision/provision.py`](growspace_vision/provision.py) mints a per-install
+bearer token under `/data` on first start and announces `{host, port, token}` to
+Supervisor App discovery, which the integration pulls; the optional `access_token`
+option overrides it for a manually configured endpoint, and `GROWSPACE_VISION_TOKEN`
+overrides both when the image is run outside Supervisor. See
+[ADR 0006](docs/adr/0006-the-app-mints-its-own-token-and-hands-it-over-through-discovery.md).
 
 The image build is deliberately split at the network boundary. Preparation downloads
 only the URLs in `packaging/locks/{amd64,arm64}.lock`, verifies every size and SHA-256,

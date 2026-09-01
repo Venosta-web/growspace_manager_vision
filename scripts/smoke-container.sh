@@ -11,10 +11,11 @@ case "${expected_arch}" in
 esac
 
 container_name="growspace-vision-smoke-${RANDOM}-$$"
+provisioned_name="growspace-vision-provisioned-${RANDOM}-$$"
 smoke_dir="$(mktemp -d)"
 
 cleanup() {
-  docker rm --force "${container_name}" >/dev/null 2>&1 || true
+  docker rm --force "${container_name}" "${provisioned_name}" >/dev/null 2>&1 || true
   rm -rf "${smoke_dir}"
 }
 trap cleanup EXIT
@@ -97,5 +98,65 @@ docker exec "${container_name}" jq --exit-status \
    (.quality.reasons | length) == 0' /tmp/analyze.json >/dev/null
 
 memory="$(docker stats --no-stream --format '{{.MemUsage}}' "${container_name}")"
-printf 'architecture=%s network=none analyze_seconds=%s memory=%s\n' \
+
+# The App's own credential lifecycle: no token is supplied, so the image must
+# mint one under /data, keep it owner-only, enforce it, and reuse it on the
+# next start. Discovery itself needs a Supervisor and is covered by the
+# packaging tests; this proves the half that lives in the image.
+data_dir="${smoke_dir}/data"
+mkdir "${data_dir}"
+
+docker run \
+  --detach \
+  --name "${provisioned_name}" \
+  --platform "linux/${expected_arch}" \
+  --network none \
+  --read-only \
+  --tmpfs /run:rw,exec,nosuid,size=16m \
+  --tmpfs /tmp:rw,noexec,nosuid,size=16m \
+  --volume "${data_dir}:/data" \
+  "${image}" >/dev/null
+
+for _attempt in $(seq 1 100); do
+  if [[ "$(docker inspect --format '{{.State.Running}}' "${provisioned_name}")" != true ]]; then
+    docker logs "${provisioned_name}" >&2
+    exit 1
+  fi
+  status="$(docker exec "${provisioned_name}" curl --silent --output /dev/null \
+    --write-out '%{http_code}' http://127.0.0.1:8099/health || true)"
+  [[ "${status}" == 200 ]] && break
+  sleep 0.2
+done
+test "${status}" = 200
+
+test "$(docker exec "${provisioned_name}" stat --format='%a' /data/bearer_token)" = 600
+test "$(docker exec "${provisioned_name}" \
+  sh -c 'tr -d "\n" </data/bearer_token | wc -c')" -ge 32
+
+# Read through the file rather than through an argument, so the generated
+# secret never appears in a command line.
+docker exec "${provisioned_name}" sh -c 'curl --fail --silent \
+  --header "Authorization: Bearer $(cat /data/bearer_token)" \
+  http://127.0.0.1:8099/info' \
+  | jq --exit-status '.service_name == "growspace_manager_vision"' >/dev/null
+
+test "$(docker exec "${provisioned_name}" curl --silent --output /dev/null \
+  --write-out '%{http_code}' --header 'Authorization: Bearer not-the-minted-token' \
+  http://127.0.0.1:8099/info)" = 401
+
+minted="$(docker exec "${provisioned_name}" sha256sum /data/bearer_token)"
+docker restart "${provisioned_name}" >/dev/null
+for _attempt in $(seq 1 100); do
+  status="$(docker exec "${provisioned_name}" curl --silent --output /dev/null \
+    --write-out '%{http_code}' http://127.0.0.1:8099/health || true)"
+  [[ "${status}" == 200 ]] && break
+  sleep 0.2
+done
+test "${status}" = 200
+test "$(docker exec "${provisioned_name}" sha256sum /data/bearer_token)" = "${minted}"
+docker exec "${provisioned_name}" sh -c 'curl --fail --silent \
+  --header "Authorization: Bearer $(cat /data/bearer_token)" \
+  http://127.0.0.1:8099/info' >/dev/null
+
+printf 'architecture=%s network=none analyze_seconds=%s memory=%s provisioned=reused\n' \
   "${expected_arch}" "${analyze_metrics}" "${memory}"

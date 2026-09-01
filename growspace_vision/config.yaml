@@ -13,9 +13,11 @@ ports:
   8099/tcp: null
 ports_description:
   8099/tcp: Growspace Vision API
+discovery:
+  - growspace_manager
 options: {}
 schema:
-  access_token: password
+  access_token: password?
 image: ghcr.io/venosta-web/growspace-manager-vision
 legacy: false
 apparmor: true
