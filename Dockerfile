@@ -41,12 +41,14 @@ COPY src ./src
 COPY LICENSE README.md packaging/THIRD_PARTY_NOTICES.md ./
 COPY scripts/generate-sbom.py /tmp/generate-sbom.py
 COPY growspace_vision/run.sh /run.sh
+COPY growspace_vision/provision.py /opt/growspace-vision/provision.py
 
 RUN /opt/growspace-vision/venv/bin/python /tmp/generate-sbom.py \
         --arch "${TARGETARCH}" \
         --manifest /opt/growspace-vision/build-inputs.json \
         --output /opt/growspace-vision/sbom.spdx.json \
     && chmod 0555 /run.sh \
+    && chmod 0444 /opt/growspace-vision/provision.py \
     && rm /tmp/generate-sbom.py
 
 ENV PATH="/opt/growspace-vision/venv/bin:${PATH}" \
