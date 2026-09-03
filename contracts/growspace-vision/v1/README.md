@@ -53,6 +53,35 @@ empty, normal, or healthy result. It does not retry automatically.
 Errors never use an `analyzed` or `rejected` body. An unknown model is an invalid
 request; a known model whose `state` is `unavailable` is `model_not_loaded`.
 
+## The quality floor
+
+`/analyze` applies an absolute floor before inference and returns `rejected` — a 200
+response with no embedding — when any of these hold on the decoded image:
+
+| condition                              | reason                 |
+| -------------------------------------- | ---------------------- |
+| `mean_luminance < 16`                  | `too_dark`             |
+| `mean_absolute_gradient < 0.5`         | `low_detail`           |
+| `clipped_pixel_fraction >= 0.90`       | `overexposed`          |
+| `light_state` is `off`, or `on` with a frame below the darkness floor | `light_state_mismatch` |
+
+Every reason that holds is reported, so a dark frame captured during a lit window
+carries both `too_dark` and `light_state_mismatch`. `light_state: "unknown"` is never a
+mismatch. `QualitySignals` are returned on accepted and rejected responses alike.
+
+These are the only rejections a stateless service can make. `low_detail` is a
+blank-frame floor and `overexposed` an all-highlight floor — neither is a blur detector
+nor a judgment about normal highlight clipping, which measures above 5% on 79% of
+healthy production frames. **The service must not attempt a history-relative rejection**:
+occlusion, defocus and exposure excursion are relative to one camera's own past, which
+V1 does not let the service see. Home Assistant applies those rails to the returned
+signals, per
+[ADR 0005](../../../docs/adr/0005-the-frame-quality-gate-rejects-darkness-and-bounds-the-rest.md).
+
+The thresholds are service behaviour, not wire shape. Changing one changes
+`service_version`, never `schema_version`; Home Assistant records the `service_version`
+of every capture so a floor change is visible in stored evidence.
+
 ## Version negotiation
 
 `/info` is the bootstrap and therefore remains parseable as V1 even when the App no

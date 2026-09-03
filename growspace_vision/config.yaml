@@ -1,0 +1,26 @@
+name: Growspace Vision
+version: "1.0.0"
+slug: growspace_vision
+description: Local, stateless image analysis for Growspace Manager
+url: https://github.com/Venosta-web/growspace_manager_vision
+arch:
+  - aarch64
+  - amd64
+startup: services
+boot: auto
+init: false
+ports:
+  8099/tcp: null
+ports_description:
+  8099/tcp: Growspace Vision API
+discovery:
+  - growspace_manager
+options: {}
+schema:
+  access_token: password?
+image: ghcr.io/venosta-web/growspace-manager-vision
+legacy: false
+apparmor: true
+tmpfs: true
+watchdog: http://[HOST]:[PORT:8099]/health
+stage: experimental

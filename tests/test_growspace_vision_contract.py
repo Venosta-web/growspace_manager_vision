@@ -8,7 +8,6 @@ import unittest
 from pathlib import Path
 from typing import Any
 
-
 ROOT = Path(__file__).parents[1]
 CONTRACT_DIR = ROOT / "contracts" / "growspace-vision" / "v1"
 OPENAPI_PATH = CONTRACT_DIR / "openapi.json"

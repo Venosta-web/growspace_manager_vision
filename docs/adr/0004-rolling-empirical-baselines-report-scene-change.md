@@ -1,6 +1,13 @@
 # ADR 0004 — Rolling empirical baselines report scene change
 
-**Status:** Accepted
+**Status:** Accepted, amended by [ADR 0005](0005-the-frame-quality-gate-rejects-darkness-and-bounds-the-rest.md)
+
+> **Amendment (2026-08-31, hub#74).** V1 has no automatic camera-move detection, so
+> a Framing Epoch begins only on a manual restart or a Grow Run or model-version
+> boundary. The structural signature cannot separate a camera move from a lens
+> occlusion, and an automatic boundary drawn from it would re-learn an occluded view
+> as normal. Every sentence below that anticipates a detected-framing boundary is
+> superseded by ADR 0005 on that point alone; nothing else here changes.
 
 Decided on 2026-08-31 in
 [hub#66](https://github.com/Venosta-web/growspace_manager_workspace/issues/66),
@@ -16,8 +23,8 @@ not interpret the score, verdict, or confidence as plant health.
 A Baseline Bucket belongs to exactly one camera, light window, Grow Run, model version,
 and Framing Epoch. The light-window dimension remains deliberately conservative but
 empirically unvalidated: the available corpus contains only one capture per day. A
-Framing Epoch begins when a camera move is detected or the grower manually restarts the
-visual baseline. Grow Run and model-version changes also start fresh buckets.
+Framing Epoch begins when the grower manually restarts the visual baseline; ADR 0005
+removed the automatic camera-move trigger this originally also named. Grow Run and model-version changes also start fresh buckets.
 
 Only quality-accepted, framing-stable captures may become members. During bootstrap,
 every eligible capture enters the bucket; membership describes an intended stable
@@ -27,10 +34,10 @@ is scored before any update and enters only when its verdict is `normal`. `uncer
 normal capture replaces the oldest member, after which Home Assistant recomputes the
 centroid and calibration distances.
 
-The frame-quality and camera-move mechanisms are owned by
-[hub#74](https://github.com/Venosta-web/growspace_manager_workspace/issues/74).
-This decision consumes their accepted/rejected and framing-boundary outcomes; it does
-not preempt their measures or thresholds.
+The frame-quality mechanism is owned by
+[hub#74](https://github.com/Venosta-web/growspace_manager_workspace/issues/74) and
+settled in ADR 0005. This decision consumes its accepted/rejected outcome. That work
+also found automatic camera-move detection unsafe, which is the amendment above.
 
 ## Baseline states
 
@@ -47,8 +54,11 @@ A bucket has one of three Baseline States:
   normal capture can be admitted. Stale captures
   produce first-class monitoring-only results without a score, confidence, or verdict.
   The old members and calibration remain available for audit, but scoring and automatic
-  admission stop until a manual restart or an automatic Grow Run, model-version, or
-  Framing Epoch boundary starts a fresh bucket.
+  admission stop until a manual restart or an automatic Grow Run or model-version
+  boundary starts a fresh bucket. A stale bucket is the mechanism that
+  absorbs an undetected camera move: every capture scores `material_scene_change`,
+  none is admitted, and scoring stops after 14 days. ADR 0005's Capture Continuity
+  Break is what tells the grower before those 14 days elapse.
 
 A quality rejection remains a Frame Quality Result and creates no Visual Comparison
 Result. Transport, authentication, model, timeout, and internal failures retain the
@@ -129,8 +139,7 @@ The user-facing camera action is **Restart visual baseline**. After confirmation
 starts a new Framing Epoch and resets every light-window bucket for that camera in the
 active Grow Run. It discards only active baseline members and calibration data; Camera
 Snapshots, Vision Analyses, Frame Quality Results, and Visual Comparison Results remain
-historical evidence. Automatic Grow Run, model-version, and detected-framing boundaries
-have the same fresh-monitoring effect without deleting history.
+historical evidence. Automatic Grow Run and model-version boundaries have the same fresh-monitoring effect without deleting history.
 
 ## Evidence limits and consequences
 

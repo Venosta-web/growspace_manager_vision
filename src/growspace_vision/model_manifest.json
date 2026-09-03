@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "model_id": "dinov2-vit-s-14-int8-onnx",
+  "model_version": "1.0.0",
+  "artifact": {
+    "repository": "onnx-community/dinov2-small",
+    "revision": "8b1f705a3a7f6f062f6bdd21986c1583d3ef105d",
+    "path": "onnx/model_int8.onnx",
+    "url": "https://huggingface.co/onnx-community/dinov2-small/resolve/8b1f705a3a7f6f062f6bdd21986c1583d3ef105d/onnx/model_int8.onnx?download=true",
+    "size_bytes": 24446700,
+    "sha256": "dfce54a839b491f395c516350ebb4a78f947e9170a6beac0f2bc5638e0f09d61"
+  },
+  "input": {
+    "name": "pixel_values",
+    "type": "float32",
+    "layout": "NCHW",
+    "shape": [1, 3, 168, 224]
+  },
+  "preprocessing": {
+    "geometry": "whole_frame",
+    "resize": [224, 168],
+    "resampling": "bicubic",
+    "scale": 255,
+    "mean": [0.485, 0.456, 0.406],
+    "standard_deviation": [0.229, 0.224, 0.225]
+  },
+  "output": {
+    "name": "last_hidden_state",
+    "token_index": 0,
+    "embedding_dimension": 384,
+    "normalization": "l2_float64"
+  },
+  "runtime": {
+    "package": "onnxruntime",
+    "version": "1.29.0",
+    "execution_providers": ["CPUExecutionProvider"],
+    "telemetry_enabled": false,
+    "intra_op_num_threads": 4,
+    "inter_op_num_threads": 1,
+    "graph_optimization_level": "ORT_ENABLE_ALL"
+  }
+}
