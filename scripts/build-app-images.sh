@@ -12,11 +12,16 @@ esac
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-if [[ " ${architectures[*]} " == *" arm64 "* ]] \
-  && ! docker buildx inspect --bootstrap | grep -q 'linux/arm64'; then
-  echo "arm64 execution is unavailable; register a pinned binfmt handler:" >&2
-  echo "docker run --privileged --rm tonistiigi/binfmt:qemu-v10.0.4 --install arm64" >&2
-  exit 1
+if [[ " ${architectures[*]} " == *" arm64 "* ]]; then
+  buildx_platforms="$(docker buildx inspect --bootstrap)"
+  case "${buildx_platforms}" in
+    *linux/arm64*) ;;
+    *)
+      echo "arm64 execution is unavailable; register a pinned binfmt handler:" >&2
+      echo "docker run --privileged --rm tonistiigi/binfmt:qemu-v10.0.4 --install arm64" >&2
+      exit 1
+      ;;
+  esac
 fi
 
 for arch in "${architectures[@]}"; do
