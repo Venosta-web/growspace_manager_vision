@@ -210,6 +210,9 @@ tempCodeRunnerFile.py
 *.onnx
 .build-inputs/
 
+# Private-corpus replay artifacts can contain per-frame measurements and thumbnails.
+private-corpus-report/
+
 # ONNX Runtime may attempt to persist a local telemetry session identifier.
 :memory:.ses
 

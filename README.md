@@ -148,3 +148,29 @@ GROWSPACE_VISION_TEST_MODEL_PATH=/path/to/verified/model_int8.onnx \
 
 `tests/test_growspace_vision_contract.py` remains dependency-free when run on its own
 with the system Python; the service tests need the installed extra.
+
+## Replay the private reference corpus
+
+[`scripts/private_corpus_replay.py`](scripts/private_corpus_replay.py) drives the 109
+local captures through the running production Vision HTTP service, then executes the
+Home Assistant integration's production `QualityHistory` and
+`VisualComparisonEngine` classes in capture order. It writes the approved filmstrip,
+private thumbnails, and the per-frame discrepancy ledger under the ignored
+`private-corpus-report/` directory. Embeddings are held only in memory.
+
+Run it with the backend virtual environment so the imported integration modules use
+their tested dependency set:
+
+```bash
+PYTHONPATH=/path/to/growspace_manager \
+  /path/to/growspace_manager/.venv/bin/python scripts/private_corpus_replay.py \
+  --corpus "/path/to/private/corpus" \
+  --backend-root /path/to/growspace_manager \
+  --token-file /path/to/local/options.json
+```
+
+The command refuses a partial corpus or extra image files. `aggregate.json` is the one
+publishable output: it contains aggregate measurements and provenance, with explicit
+privacy flags proving that it contains no source paths, images, embeddings, or
+per-frame results. Never commit the report directory itself, even though git ignores
+it.
