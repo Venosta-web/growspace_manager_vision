@@ -1,7 +1,8 @@
 # ADR 0008 — Corpus-derived imagery stays out of this repository
 
-**Status:** Accepted. The working tree is clean as of this commit; the history purge is
-an open obligation, and it is larger than this repository.
+**Status:** Accepted. The working tree is clean as of this commit. The hub's public
+history has been rewritten; a residual there, and this repository's own history, remain
+open.
 
 Decided for [hub#138](https://github.com/Venosta-web/growspace_manager_workspace/issues/138),
 under the corpus-privacy rule of
@@ -63,24 +64,31 @@ repository`. Moving a file out of a tree does not remove it from history. `5c95d
 an ancestor of the hub's `main`, and **the hub is a public repository**. All four blobs
 are anonymously downloadable from it today, and have been since 2026-08-31.
 
-So this is not a pre-publication precaution. The corpus imagery is already published,
+So this was not a pre-publication precaution. The corpus imagery was already published,
 and removing it from this repository's tree — this commit — does not change that. The
-remaining work is disclosure remediation in the hub, which owns the tracker and the
-public remote; it is recorded there rather than here.
+remediation belongs to the hub, which owns the public remote; it is summarised here
+because this repository is where the rule now lives.
+
+## What was done in the hub
+
+All 43 hub branches were rewritten with `git filter-repo --invert-paths --path
+docs/research/assets/embedding-separation` and force-pushed. The rewrite is surgical:
+every branch tip's tree is byte-identical to its predecessor except the four that still
+carried the files, where the only difference is those four paths, and `main`'s tree hash
+is unchanged. A `git clone` of the hub no longer carries the frames.
 
 ## Obligations this ADR does not discharge
 
-- **The hub's public history.** Purging `5c95d74`'s blobs from
-  `growspace_manager_workspace` requires rewriting a public `main`, force-pushing, and
-  asking GitHub to expire the cached blob views that survive a rewrite. Owned by the
-  hub, and by whoever decides whether a rewrite is worth it now that the frames have
-  been publicly fetchable for months.
+- **The hub's `refs/pull/*`.** Thirteen pull-request refs still reach the blobs, and
+  GitHub makes those read-only: no force-push can rewrite or delete them, and the
+  original commits stay fetchable by SHA until GitHub garbage-collects. Only GitHub
+  Support can purge them. Until that request is filed and completed, the frames remain
+  publicly retrievable by anyone holding a commit SHA.
 - **This repository's own history.** Sixteen branches on this repository's `origin`
   still carry the blobs, `main` among them, and the history is short enough that a
-  rewrite is cheap. It is worth doing before this
-  repository is made public, a mirror is cut, or a support bundle is taken from it —
-  but it is not urgent while it is private and unforked, and it is worthless on its own
-  while the hub still serves the same bytes.
+  rewrite is cheap. Worth doing before this repository is made public, a mirror is cut,
+  or a support bundle is taken from it. It has no bearing on the hub residual above.
 
-Both are gated on an explicit decision, not on this ADR. Until they are done, treat the
-four frames as public.
+Treat the four frames as disclosed. They were anonymously fetchable from a public
+repository from 2026-08-31 until the rewrite, and remain so by SHA until GitHub
+completes the purge; no rewrite recalls what was already served.
