@@ -26,6 +26,13 @@ PREPARE_BUILD_INPUTS = ROOT / "scripts" / "prepare-build-inputs.py"
 VERIFY_BUILD_INPUTS = ROOT / "scripts" / "verify-build-inputs.py"
 APP_CONFIG = ROOT / "growspace_vision" / "config.yaml"
 PROVISION = ROOT / "growspace_vision" / "provision.py"
+APP_VERSION_SCRIPT = ROOT / "scripts" / "app-version.sh"
+PYPROJECT = ROOT / "pyproject.toml"
+DOCKERFILE = ROOT / "Dockerfile"
+BUILD_IMAGES = ROOT / "scripts" / "build-app-images.sh"
+SMOKE_CONTAINER = ROOT / "scripts" / "smoke-container.sh"
+GENERATE_SBOM = ROOT / "scripts" / "generate-sbom.py"
+MODEL_MANIFEST = ROOT / "src" / "growspace_vision" / "model_manifest.json"
 
 
 def _load_provision() -> ModuleType:
@@ -292,6 +299,96 @@ class AppManifestTest(unittest.TestCase):
 
         self.assertEqual(self.config["schema"]["access_token"], "password?")
         self.assertNotIn("access_token", self.config["options"])
+
+
+class AppVersionTest(unittest.TestCase):
+    """The App version is declared once, and the model version is not it.
+
+    Home Assistant's App store reads `version` from `config.yaml` and pulls
+    exactly that image tag, so a version that is partly bumped is an install
+    that fails or a `/info` that lies. It used to be spelled in seven places.
+    """
+
+    def setUp(self) -> None:
+        self.declared = str(
+            yaml.safe_load(APP_CONFIG.read_text(encoding="utf-8"))["version"]
+        )
+
+    def test_the_declared_version_is_what_every_consumer_resolves(self) -> None:
+        printed = subprocess.run(
+            [str(APP_VERSION_SCRIPT)],
+            capture_output=True,
+            check=True,
+            text=True,
+        )
+        self.assertEqual(printed.stdout.strip(), self.declared)
+
+        # Static because the build backend needs it so; checked because nothing
+        # else would notice it standing still.
+        pyproject = PYPROJECT.read_text(encoding="utf-8")
+        self.assertIn(f'\nversion = "{self.declared}"\n', pyproject)
+
+    def test_the_service_reports_the_version_the_store_installed(self) -> None:
+        """`/info` answers a support question, so its version must be the real one."""
+        from growspace_vision.settings import DEFAULT_SERVICE_VERSION, ServiceSettings
+
+        self.assertEqual(DEFAULT_SERVICE_VERSION, self.declared)
+        self.assertEqual(
+            ServiceSettings(bearer_token="token").service_version, self.declared
+        )
+        # The image passes the declared version in explicitly; this is what a
+        # run outside the image falls back to.
+        self.assertIn(
+            'GROWSPACE_VISION_SERVICE_VERSION="${APP_VERSION}"',
+            DOCKERFILE.read_text(encoding="utf-8"),
+        )
+
+    def test_the_build_the_smoke_and_the_sbom_derive_the_version(self) -> None:
+        """A bump is one edit, so none of them may carry a number of its own."""
+        builder = BUILD_IMAGES.read_text(encoding="utf-8")
+        smoke = SMOKE_CONTAINER.read_text(encoding="utf-8")
+        sbom = GENERATE_SBOM.read_text(encoding="utf-8")
+
+        self.assertIn("scripts/app-version.sh", builder)
+        self.assertIn('--build-arg "APP_VERSION=${app_version}"', builder)
+        self.assertNotIn(self.declared, builder)
+
+        # The smoke keeps proving version agreement after the first bump, so it
+        # is handed the version rather than asserting a literal.
+        self.assertIn("expected_version", smoke)
+        self.assertIn(".service_version == $version", smoke)
+
+        self.assertIn("--version", sbom)
+        self.assertNotIn(self.declared, sbom)
+
+    def test_the_model_version_does_not_move_with_the_app_version(self) -> None:
+        """It names the embeddings, not the release.
+
+        Every stored Baseline Bucket and Framing Epoch in a user's evidence
+        store is keyed to this number. The two are textually identical today,
+        so a find-and-replace bump of the App version silently re-labels a
+        comparison history nobody can rebuild — which fails no test and shows
+        up as a Vision Checkup that has forgotten what the tent looked like.
+        """
+        from growspace_vision.analysis import UnavailableAnalyzer
+        from growspace_vision.settings import ServiceSettings
+
+        model_version = json.loads(MODEL_MANIFEST.read_text(encoding="utf-8"))[
+            "model_version"
+        ]
+        self.assertEqual(UnavailableAnalyzer.model_version, model_version)
+
+        # The App version is settable per install; the model identity is not.
+        released = ServiceSettings(bearer_token="token", service_version="9.9.9")
+        self.assertEqual(released.service_version, "9.9.9")
+        self.assertEqual(UnavailableAnalyzer.model_version, model_version)
+
+        # And the two are declared apart: nothing that resolves the App version
+        # reads the model manifest, and the model manifest names no service.
+        for path in (APP_CONFIG, APP_VERSION_SCRIPT, PYPROJECT):
+            with self.subTest(path=path.name):
+                self.assertNotIn("model_version", path.read_text(encoding="utf-8"))
+        self.assertNotIn("service_version", MODEL_MANIFEST.read_text(encoding="utf-8"))
 
 
 class CredentialProvisioningTest(unittest.TestCase):

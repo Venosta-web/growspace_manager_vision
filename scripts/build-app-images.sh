@@ -12,6 +12,11 @@ esac
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# The App version comes from growspace_vision/config.yaml, which is what the
+# Home Assistant App store reads and therefore what the published GHCR tag
+# has to be. The model version is a different number; see scripts/app-version.sh.
+app_version="$("${root}/scripts/app-version.sh")"
+
 if [[ " ${architectures[*]} " == *" arm64 "* ]]; then
   buildx_platforms="$(docker buildx inspect --bootstrap)"
   case "${buildx_platforms}" in
@@ -36,10 +41,11 @@ for arch in "${architectures[@]}"; do
     --platform "linux/${arch}" \
     --network none \
     --provenance false \
+    --build-arg "APP_VERSION=${app_version}" \
     --load \
-    --tag "growspace-vision:1.0.0-${arch}" \
+    --tag "growspace-vision:${app_version}-${arch}" \
     "${root}"
 
   "${root}/scripts/smoke-container.sh" \
-    "growspace-vision:1.0.0-${arch}" "${arch}"
+    "growspace-vision:${app_version}-${arch}" "${arch}" "${app_version}"
 done
