@@ -26,6 +26,23 @@ class VisionQualityWorkflowTest(unittest.TestCase):
         self.assertIn("mypy", commands)
         self.assertIn("unittest discover", commands)
 
+    def test_every_job_fails_fast_instead_of_inheriting_the_six_hour_default(
+        self,
+    ) -> None:
+        """A hung job must cost minutes of a private repository, not GitHub's default.
+
+        `app-images` has been bounded since it was written; `unit` was not, so when
+        the analysis deadline deadlocked one request the job that noticed it ran for
+        the whole 360-minute default instead, twice, and `main` carried no completed
+        unit gate at all. The bound is asserted for every job because the one that
+        went unbounded was the one nobody thought could hang.
+        """
+
+        for name, job in self.document["jobs"].items():
+            with self.subTest(job=name):
+                self.assertIn("timeout-minutes", job)
+                self.assertLessEqual(job["timeout-minutes"], 60)
+
     def test_image_jobs_run_both_architectures_on_native_runners(self) -> None:
         job = self.document["jobs"]["app-images"]
         steps = job["steps"]
