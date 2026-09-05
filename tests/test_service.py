@@ -5,13 +5,14 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import time
 import unittest
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
-from httpx import ASGITransport, AsyncClient
+from httpx import ASGITransport, AsyncByteStream, AsyncClient
 from support import (
     BEARER,
     EMBEDDING_DIMENSION,
@@ -35,6 +36,19 @@ class NeverCompletesAnalyzer(ReadyAnalyzer):
     async def embed(self, image: DecodedImage) -> Sequence[float]:
         await asyncio.Event().wait()
         raise AssertionError("unreachable")
+
+
+class DeadlineCrossingBody(AsyncByteStream):
+    """Make the deadline expire as middleware finishes a synchronous body read."""
+
+    def __init__(self, body: bytes) -> None:
+        self.body = body
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        # Deliberately hold the loop past the deadline: the receive task group's
+        # own cancellation and the overdue timer then run at the same checkpoint.
+        time.sleep(0.2)  # noqa: ASYNC251
+        yield self.body
 
 
 class BlockingAnalyzer(ReadyAnalyzer):
@@ -316,7 +330,9 @@ class GrowspaceVisionServiceTest(unittest.IsolatedAsyncioTestCase):
         async with self.client_for(
             NeverCompletesAnalyzer(), inference_timeout_seconds=0.01
         ) as client:
-            response = await client.post("/analyze", **analyze_request(usable_frame()))
+            response = await asyncio.wait_for(
+                client.post("/analyze", **analyze_request(usable_frame())), timeout=2
+            )
 
         assert_matches_contract_response(response, "/analyze", "post")
         self.assertEqual(response.status_code, 500)
@@ -329,6 +345,37 @@ class GrowspaceVisionServiceTest(unittest.IsolatedAsyncioTestCase):
             },
         )
         self.assertEqual(set(body), {"schema_version", "request_id", "error"})
+
+    async def test_deadline_during_body_read_stops_analysis_and_releases_slot(
+        self,
+    ) -> None:
+        analyzer = BlockingAnalyzer()
+        async with self.client_for(analyzer, inference_timeout_seconds=0.1) as client:
+            request = client.build_request(
+                "POST", "/analyze", **analyze_request(usable_frame())
+            )
+            request.stream = DeadlineCrossingBody(request.read())
+            # Bound the regression itself even if the service loses cancellation.
+            response = await asyncio.wait_for(client.send(request), timeout=2)
+
+            assert_matches_contract_response(response, "/analyze", "post")
+            self.assertEqual(response.status_code, 500)
+            self.assertEqual(
+                response.json()["error"],
+                {
+                    "code": "internal_failure",
+                    "message": "Analysis deadline exceeded",
+                },
+            )
+            self.assertFalse(analyzer.started.is_set())
+
+            analyzer.release.set()
+            recovered = await asyncio.wait_for(
+                client.post("/analyze", **analyze_request(usable_frame())), timeout=2
+            )
+
+        self.assertEqual(recovered.status_code, 200)
+        assert_matches_contract_response(recovered, "/analyze", "post")
 
     async def test_concurrent_analysis_is_rejected_instead_of_queued(self) -> None:
         analyzer = BlockingAnalyzer()

@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+from anyio import create_task_group
 from numpy.typing import NDArray
 
 from growspace_vision.analysis import Analyzer
@@ -98,6 +99,8 @@ class CancellableSession(CompatibleSession):
         self.started.set()
         while not run_options.terminate:
             self.stopped.wait(0.001)
+        # Native inference needs time to observe termination and unwind.
+        self.stopped.wait(0.02)
         self.stopped.set()
         raise RuntimeError("inference terminated")
 
@@ -284,6 +287,21 @@ class ProductionInferenceTest(unittest.IsolatedAsyncioTestCase):
             await task
 
         self.assertTrue(session.stopped.wait(1.0))
+
+    async def test_cancel_scope_waits_for_native_inference_to_stop(self) -> None:
+        session = CancellableSession()
+        analyzer = load_fixture_analyzer(session)
+
+        async with create_task_group() as tasks:
+            tasks.start_soon(
+                analyzer.embed,
+                DecodedImage(pixels=np.full((8, 8, 3), 127, dtype=np.uint8)),
+            )
+            self.assertTrue(await asyncio.to_thread(session.started.wait, 1.0))
+            tasks.cancel_scope.cancel()
+
+        # The service may release its inference slot only after native work ends.
+        self.assertTrue(session.stopped.is_set())
 
 
 @unittest.skipUnless(
