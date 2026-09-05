@@ -11,6 +11,14 @@ DINOv2 ViT-S/14 int8 ONNX, 384-d CLS token, ONNX Runtime `CPUExecutionProvider`,
 `onnxruntime` 1.29.0. Scripts in [`scratchpad/wf62/`](../../scratchpad/wf62/); every
 number here is reproducible by running them in order.
 
+The corpus, and every image derived from it, stays local and untracked
+([ADR 0008](../adr/0008-corpus-derived-imagery-stays-out-of-this-repository.md)).
+This document was originally illustrated with four corpus-derived JPEGs — two dated
+contact sheets, a legible-resolution set of the camera events, and the rendered
+perturbation set. **They have been removed**; the passages that relied on them now say
+what was looked at and where to regenerate it. Every measurement below is unchanged and
+still reproducible from the scripts.
+
 ---
 
 ## Verdict
@@ -51,9 +59,13 @@ claim.
 Three facts recorded from
 [Export the production snapshot corpus](https://github.com/Venosta-web/growspace_manager_workspace/issues/63)
 are wrong, and all three change the experiment. They were found by looking at the frames
-([sheet 1](assets/embedding-separation/corpus-sheet-1.jpg),
-[sheet 2](assets/embedding-separation/corpus-sheet-2.jpg)) after the embedding distances
-pointed at days that no photometric statistic explained.
+themselves — the whole 109-frame run laid out as two date-captioned contact sheets —
+after the embedding distances pointed at days that no photometric statistic explained.
+Those sheets are corpus-derived and are not tracked here. To look again, build them from
+the local corpus named in [Appendix — method](#appendix--method), or read the
+one-thumbnail-per-frame filmstrip that
+[`scripts/private_corpus_replay.py`](../../scripts/private_corpus_replay.py) writes into
+the ignored `private-corpus-report/`, which covers the same frames in the same order.
 
 ### 1. The camera moved — four times
 
@@ -202,7 +214,10 @@ too, which makes it a white-balance shift wearing a costume and would have corru
 entire test. Camera-shaped magnitudes are calibrated to the corpus's own observed
 spread (mean luminance 96–185, G/R 1.00–1.10, G/B 0.96–1.30), so "plausible" means
 "this camera did this".
-[Rendered perturbations](assets/embedding-separation/perturbations-plant.jpg).
+The rendered set was inspected on a corpus frame before any score was trusted; that
+render is corpus-derived and is not tracked here. Applying
+[`perturb.py`](../../scratchpad/wf62/perturb.py)'s functions to a local corpus frame
+reproduces it.
 
 `z` = score rise in baseline-σ units; `fire%` = fraction over the 3σ gate;
 AUC vs the unperturbed frames.
@@ -445,7 +460,9 @@ with a local model instead of a remote one.
 ## Appendix — method
 
 Corpus: 109 JPEGs at `~/Pictures/growspace manager vision/`, 800×600, one camera, one
-Grow Run, 2026-03-21 → 2026-07-07.
+Grow Run, 2026-03-21 → 2026-07-07. The frames are private and stay there: nothing
+derived from them as an image — frame, crop, thumbnail, contact sheet or rendered
+perturbation — is committed to this repository.
 
 Encoder: `onnx-community/dinov2-small` → `onnx/model_int8.onnx` (24.4 MB) and
 `onnx/model.onnx` (88.5 MB) for the control. ONNX Runtime 1.29.0,
