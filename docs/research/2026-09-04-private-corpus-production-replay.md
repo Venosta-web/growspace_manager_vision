@@ -9,6 +9,12 @@ visual report remain local and ignored. This document contains aggregate results
 
 ## Result
 
+Decision follow-up: [ADR 0007](../adr/0007-production-replay-keeps-an-unintervened-control.md)
+resolves this report's discrepancy ledger for hub#137. This remains the unintervened
+control; a separate scenario with declared grower restarts is required but has not
+been measured. Stale scoring remains stopped, and the prototype's quiet-stable-run
+claim is withdrawn as production evidence. The measurements below are unchanged.
+
 The production pipeline completed all 109 captures. Growspace Vision analyzed 96 and
 rejected the 13 lights-off captures at its absolute floor. Home Assistant rejected one
 additional occluded capture on its camera-relative detail rail, reproducing the locked
