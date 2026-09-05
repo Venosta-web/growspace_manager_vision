@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -9,6 +12,8 @@ import yaml
 
 ROOT = Path(__file__).parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "quality.yml"
+VENDORING_WORKFLOW = ROOT / ".github" / "workflows" / "backend-vendoring.yml"
+VENDORING_SCRIPT = ROOT / "scripts" / "check-backend-vendoring.sh"
 
 
 class VisionQualityWorkflowTest(unittest.TestCase):
@@ -73,6 +78,68 @@ class VisionQualityWorkflowTest(unittest.TestCase):
 
         self.assertIn("--network none", builder)
         self.assertGreaterEqual(smoke.count("--network none"), 2)
+
+
+class BackendVendoringWorkflowTest(unittest.TestCase):
+    """The vendoring gate is documented as CI, so CI has to be where it runs.
+
+    `docs/CONTRACT.md` in the hub claimed for months that Growspace Manager
+    checked its vendored fixtures against this repository. Nothing did: the
+    backend is public and this repository is private, so the comparison cannot
+    run there without a credential, and it ran only from a workspace command
+    that needs both checkouts on one disk.
+    """
+
+    def setUp(self) -> None:
+        self.document = yaml.safe_load(VENDORING_WORKFLOW.read_text(encoding="utf-8"))
+
+    def test_drift_is_noticed_from_either_side_of_the_boundary(self) -> None:
+        """A change here trips it; the weekly run is what catches a backend edit."""
+        triggers = self.document["on"]
+
+        self.assertEqual(triggers["push"]["branches"], ["main"])
+        self.assertIn("pull_request", triggers)
+        self.assertIn("schedule", triggers)
+        self.assertIn("workflow_dispatch", triggers)
+
+    def test_the_job_runs_the_comparison_and_fails_fast(self) -> None:
+        job = self.document["jobs"]["vendored-fixtures"]
+        commands = "\n".join(step.get("run", "") for step in job["steps"])
+
+        self.assertIn("./scripts/check-backend-vendoring.sh", commands)
+        self.assertIn("timeout-minutes", job)
+        self.assertLessEqual(job["timeout-minutes"], 60)
+
+    def test_reading_the_public_backend_needs_no_credential(self) -> None:
+        """The gate must not acquire a secret it would then have to be trusted with."""
+        self.assertNotIn("secrets.", VENDORING_WORKFLOW.read_text(encoding="utf-8"))
+
+    def test_the_check_reports_the_comparison_rather_than_its_own_success(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            backend = Path(directory) / "backend"
+            helper = backend / "tests" / "utils" / "vision_contract_fixtures.py"
+            helper.parent.mkdir(parents=True)
+
+            helper.write_text("raise SystemExit(0)\n", encoding="utf-8")
+            self.assertEqual(self._run(backend).returncode, 0)
+
+            helper.write_text("raise SystemExit(1)\n", encoding="utf-8")
+            self.assertEqual(self._run(backend).returncode, 1)
+
+            helper.unlink()
+            missing = self._run(backend)
+            self.assertEqual(missing.returncode, 1)
+            self.assertIn("vision_contract_fixtures.py is missing", missing.stderr)
+
+    def _run(self, backend: Path) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [str(VENDORING_SCRIPT)],
+            capture_output=True,
+            check=False,
+            cwd=ROOT,
+            env={**os.environ, "GROWSPACE_BACKEND_ROOT": str(backend)},
+            text=True,
+        )
 
 
 if __name__ == "__main__":

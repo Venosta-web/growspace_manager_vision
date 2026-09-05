@@ -116,3 +116,15 @@ same no-write semantics.
 schema and expected validity. The negative response fixtures make the #68 constraint
 executable: `symptoms`, `chlorosis`, and `drooping` are each rejected, as are temporal
 scores and environmental request data.
+
+Home Assistant vendors the manifest-owned files byte for byte into
+`tests/fixtures/vision/growspace-vision/v1/` and runs its strict parser against its own
+copy, so a stale vendored tree lets the wire shape drift while both repositories stay
+green. `scripts/check-backend-vendoring.sh` is the gate: it clones the public
+`growspace_manager` — no credential, this repository is the private half — and runs the
+backend's own comparison helper against these files. CI runs it on every pull request
+and push to `main`, and weekly, because a backend-side edit trips no commit here.
+
+A contract change is still authored here first. The vendoring job will be red from the
+moment the fixtures move until the backend mirrors them, and the backend can vendor
+from an unmerged branch, since it copies bytes rather than depending on a merged commit.

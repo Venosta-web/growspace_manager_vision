@@ -27,5 +27,13 @@ Run the dependency-free contract suite after contract or fixture changes:
 python3 -m unittest discover -s tests -v
 ```
 
+Run the downstream vendoring gate after changing anything under
+`contracts/growspace-vision/v1/fixtures/`. It is the only automatic check that Home
+Assistant's vendored copy still matches the contract this repository owns:
+
+```bash
+./scripts/check-backend-vendoring.sh
+```
+
 Follow the workspace hub's cross-repo guidance when a change also affects the Home
 Assistant integration or Lovelace card.
