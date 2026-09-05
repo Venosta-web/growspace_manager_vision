@@ -2,6 +2,14 @@
 
 **Status:** Accepted, amended by [ADR 0005](0005-the-frame-quality-gate-rejects-darkness-and-bounds-the-rest.md)
 
+> **Evidence amendment (2026-09-05, hub#137).**
+> [ADR 0007](0007-production-replay-keeps-an-unintervened-control.md) retains this
+> policy but limits its operational claims: changed scenes can score normal and be
+> admitted, stable framing can differ from a mixed earlier bucket, and staleness
+> deliberately stops comparison until a fresh baseline is started. A continuity
+> warning is not guaranteed for every such sequence. Acceptance must retain the
+> uninterrupted control alongside a separately declared grower-intervention replay.
+
 > **Amendment (2026-08-31, hub#74).** V1 has no automatic camera-move detection, so
 > a Framing Epoch begins only on a manual restart or a Grow Run or model-version
 > boundary. The structural signature cannot separate a camera move from a lens
@@ -50,15 +58,16 @@ A bucket has one of three Baseline States:
   monitoring result; the next eligible capture is the first one scored.
 - `ready`: exactly 30 rolling members exist and the newest admitted member is no more
   than 14 elapsed days old. The bucket may produce scored results.
-- `stale`: no member has been admitted for 14 elapsed days. After bootstrap, only a
+- `stale`: the last admitted member is more than 14 elapsed days old. After bootstrap, only a
   normal capture can be admitted. Stale captures
   produce first-class monitoring-only results without a score, confidence, or verdict.
   The old members and calibration remain available for audit, but scoring and automatic
   admission stop until a manual restart or an automatic Grow Run or model-version
-  boundary starts a fresh bucket. A stale bucket is the mechanism that
-  absorbs an undetected camera move: every capture scores `material_scene_change`,
-  none is admitted, and scoring stops after 14 days. ADR 0005's Capture Continuity
-  Break is what tells the grower before those 14 days elapse.
+  boundary starts a fresh bucket. Sustained material-change verdicts after an
+  undetected camera move can cause staleness, but a changed scene can also score
+  normal and be admitted. ADR 0005's Capture Continuity Break warns only when its
+  specified consecutive-capture condition occurs; it does not guarantee warning
+  before every stale state or identify every changed scene (ADR 0007).
 
 A quality rejection remains a Frame Quality Result and creates no Visual Comparison
 Result. Transport, authentication, model, timeout, and internal failures retain the
