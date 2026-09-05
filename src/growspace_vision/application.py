@@ -1,11 +1,11 @@
 """ASGI application for Growspace Vision."""
 
-import asyncio
 from collections.abc import Awaitable, Callable
 from secrets import compare_digest
 from typing import Final
 from uuid import uuid4
 
+from anyio import fail_after
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from starlette.datastructures import UploadFile
@@ -221,7 +221,9 @@ def create_app(
                 headers={"Retry-After": "1"},
             )
         try:
-            async with asyncio.timeout(inference_timeout_seconds):
+            # Starlette receives the body inside AnyIO cancel scopes. Keep the
+            # deadline in that hierarchy so an inner scope cannot swallow it.
+            with fail_after(inference_timeout_seconds):
                 metadata_body, image_body = await _read_analyze_parts(request)
                 metadata = parse_metadata(metadata_body)
                 if not _names_the_loaded_model(metadata, active_analyzer):

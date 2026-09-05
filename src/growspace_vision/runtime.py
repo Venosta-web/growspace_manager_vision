@@ -14,6 +14,7 @@ from typing import Any, Final, Protocol, cast
 
 import numpy as np
 import onnxruntime as ort  # type: ignore[import-untyped]
+from anyio import CancelScope
 from numpy.typing import NDArray
 from PIL import Image
 
@@ -152,7 +153,9 @@ class DinoV2Analyzer:
             outputs = await asyncio.shield(inference)
         except asyncio.CancelledError:
             run_options.terminate = True
-            with suppress(Exception):
+            # Finish native termination before the caller releases its slot,
+            # even while an enclosing AnyIO deadline keeps cancelling awaits.
+            with CancelScope(shield=True), suppress(Exception):
                 await inference
             raise
         if len(outputs) != 1:
