@@ -1,0 +1,40 @@
+---
+name: Backend vendoring
+
+# Growspace Manager vendors this repository's V1 fixtures byte for byte. It is
+# public and this repository is private, so its own CI cannot read the canonical
+# copy without a credential; the comparison therefore runs here, where the
+# contract is owned. A weekly run is what catches drift introduced on the
+# backend side, which no commit here would otherwise trigger.
+
+"on":
+  push:
+    branches:
+      - main
+  pull_request:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: >-
+    backend-vendoring-${{ github.event_name }}-${{
+    github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  vendored-fixtures:
+    name: Vendored V1 fixtures match the contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6.0.2
+      - name: Use Python 3.13
+        uses: actions/setup-python@v6.2.0
+        with:
+          python-version: "3.13"
+      - name: Compare the backend's vendored fixtures with V1
+        run: ./scripts/check-backend-vendoring.sh
