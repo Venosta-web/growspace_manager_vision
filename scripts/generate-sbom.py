@@ -11,6 +11,10 @@ from pathlib import Path
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--arch", required=True, choices=("amd64", "arm64"))
+    # The App version, handed down from growspace_vision/config.yaml through the
+    # image build. Never a literal here: an SBOM naming a version the image is
+    # not is worse than no SBOM, and this file has no way to notice.
+    parser.add_argument("--version", required=True)
     parser.add_argument("--manifest", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
@@ -46,10 +50,10 @@ def main() -> None:
         "spdxVersion": "SPDX-2.3",
         "dataLicense": "CC0-1.0",
         "SPDXID": "SPDXRef-DOCUMENT",
-        "name": f"growspace-vision-1.0.0-linux-{args.arch}",
+        "name": f"growspace-vision-{args.version}-linux-{args.arch}",
         "documentNamespace": (
             "https://github.com/Venosta-web/growspace_manager_vision/"
-            f"sbom/1.0.0/linux-{args.arch}"
+            f"sbom/{args.version}/linux-{args.arch}"
         ),
         "creationInfo": {
             "created": "2026-08-31T00:00:00Z",
@@ -60,7 +64,7 @@ def main() -> None:
             {
                 "name": "growspace-manager-vision",
                 "SPDXID": "SPDXRef-Package-Growspace-Vision",
-                "versionInfo": "1.0.0",
+                "versionInfo": args.version,
                 "downloadLocation": "NOASSERTION",
                 "filesAnalyzed": True,
                 "licenseConcluded": "NOASSERTION",

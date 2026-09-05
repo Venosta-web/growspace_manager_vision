@@ -2,7 +2,14 @@
 
 set -euo pipefail
 
-image="${1:-growspace-vision:1.0.0-amd64}"
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# The App version this image is supposed to report. Handed over by the builder;
+# read from config.yaml when the smoke is run by hand, never spelled here, so a
+# bump keeps being proved rather than silently passing against a stale literal.
+expected_version="${3:-$("${root}/scripts/app-version.sh")}"
+
+image="${1:-growspace-vision:${expected_version}-amd64}"
 expected_arch="${2:-amd64}"
 case "${expected_arch}" in
   amd64) kernel_arch=x86_64 ;;
@@ -34,6 +41,9 @@ cat >"${smoke_dir}/metadata.json" <<'JSON'
   "model_version": "1.0.0"
 }
 JSON
+# The model version above and below is NOT the App version. It identifies the
+# embeddings a user's Baseline Buckets are keyed to, so it stays a literal of
+# its own and does not move when the App version does.
 
 docker run \
   --detach \
@@ -66,8 +76,9 @@ docker exec "${container_name}" jq --exit-status \
 docker exec "${container_name}" curl --fail --silent \
   --header 'Authorization: Bearer smoke-test-secret' \
   http://127.0.0.1:8099/info \
-  | jq --exit-status \
-      '.service_name == "growspace_manager_vision" and .service_version == "1.0.0"' \
+  | jq --exit-status --arg version "${expected_version}" \
+      '.service_name == "growspace_manager_vision" and
+       .service_version == $version' \
       >/dev/null
 
 docker exec "${container_name}" curl --fail --silent \

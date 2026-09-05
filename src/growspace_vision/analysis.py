@@ -44,6 +44,11 @@ class UnavailableAnalyzer:
 
     ready = False
     model_id = "dinov2-vit-s-14-int8-onnx"
+    # The MODEL version, mirroring model_manifest.json for the window before
+    # the runtime has loaded it. It is not the App version in config.yaml and
+    # settings.py, which happens to read the same today: this number identifies
+    # the embeddings every stored Baseline Bucket and Framing Epoch is keyed
+    # to, so an App release must leave it exactly where it is.
     model_version = "1.0.0"
     embedding_dimension = 384
 

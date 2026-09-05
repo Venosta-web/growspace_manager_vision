@@ -1,0 +1,209 @@
+---
+name: Release
+
+"on":
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+# Scoped per job rather than here: reading whether a tag exists, pushing an
+# image, and cutting a GitHub Release are three different powers, and only the
+# last of them may write to this repository. Nothing in this workflow uses
+# OIDC — signing and attestation are a separate decision — so no job asks for
+# `id-token`.
+
+concurrency:
+  group: app-publish
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/venosta-web/growspace-manager-vision
+
+jobs:
+  version:
+    name: Declared App version
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      version: ${{ steps.declared.outputs.version }}
+      exists: ${{ steps.published.outputs.exists }}
+    steps:
+      - uses: actions/checkout@v6.0.2
+      - name: Read the version the App store will ask for
+        id: declared
+        run: |
+          version="$(./scripts/app-version.sh)"
+          echo "Declared App version $version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Log in to GHCR
+        uses: docker/login-action@v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      # A published version is immutable: someone has already installed the
+      # bytes behind this tag. A main push that does not bump the version is a
+      # no-op rather than a silent substitution, which is also what lets a
+      # README fix merge without a release.
+      - name: Check whether the tag is already published
+        id: published
+        run: |
+          if docker buildx imagetools inspect "${IMAGE}:${VERSION}" \
+            >/dev/null 2>&1; then
+            echo "${IMAGE}:${VERSION} is already published; skipping"
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          VERSION: ${{ steps.declared.outputs.version }}
+
+  app-images:
+    name: Publish ${{ matrix.architecture }} App image
+    needs: version
+    if: needs.version.outputs.exists != 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: amd64
+            runner: ubuntu-24.04
+          - architecture: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    env:
+      ARCHITECTURE: ${{ matrix.architecture }}
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6.0.2
+      - name: Use Python 3.13
+        uses: actions/setup-python@v6.2.0
+        with:
+          python-version: "3.13"
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4.0.0
+      - name: Cache verified build inputs
+        uses: actions/cache@v5.0.3
+        with:
+          path: .build-inputs/${{ matrix.architecture }}
+          key: >-
+            vision-build-inputs-${{ matrix.architecture }}-${{
+            hashFiles(format('packaging/locks/{0}.lock', matrix.architecture)) }}
+      # The same builder the PR gate runs: it prepares and verifies the locked
+      # inputs, builds with --network none, and smokes the result. What a user
+      # pulls is what CI proved, because nothing rebuilds it afterwards.
+      - name: Build and smoke the network-isolated image
+        run: ./scripts/build-app-images.sh ${{ matrix.architecture }}
+      - name: Log in to GHCR
+        uses: docker/login-action@v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Push the per-architecture image
+        run: |
+          tag="${IMAGE}:${VERSION}-${ARCHITECTURE}"
+          docker tag "growspace-vision:${VERSION}-${ARCHITECTURE}" "$tag"
+          docker push "$tag"
+          echo "TAG=$tag" >> "$GITHUB_ENV"
+      # The SBOM is generated inside the image from the verified build-input
+      # manifest, so this reads it out of the artifact rather than recomputing
+      # an inventory of something else.
+      - name: Extract the SPDX SBOM from the published image
+        run: |
+          container="$(docker create "$TAG")"
+          docker cp \
+            "${container}:/opt/growspace-vision/sbom.spdx.json" \
+            "sbom-${ARCHITECTURE}.spdx.json"
+          docker rm "${container}" >/dev/null
+      - name: Upload the SBOM
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: sbom-${{ matrix.architecture }}
+          path: sbom-${{ matrix.architecture }}.spdx.json
+          if-no-files-found: error
+
+  publish:
+    name: Publish the multi-architecture App release
+    needs: [version, app-images]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v6.0.2
+      - name: Log in to GHCR
+        uses: docker/login-action@v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      # config.yaml's `image:` carries no architecture suffix, so Supervisor
+      # resolves the generic tag and picks its own architecture out of this
+      # manifest list.
+      - name: Compose the generic multi-architecture manifest
+        id: manifest
+        shell: bash
+        run: |
+          sources=()
+          while read -r architecture; do
+            sources+=("${IMAGE}:${VERSION}-${architecture}")
+          done < <(./scripts/app-architectures.sh)
+          docker buildx imagetools create \
+            --tag "${IMAGE}:${VERSION}" "${sources[@]}"
+          digest="$(
+            docker buildx imagetools inspect "${IMAGE}:${VERSION}" \
+              --format '{{ .Manifest.Digest }}'
+          )"
+          echo "An installed image is traceable to this release by digest."
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+      - name: Download the per-architecture SBOMs
+        uses: actions/download-artifact@v8.0.1
+        with:
+          pattern: sbom-*
+          merge-multiple: true
+      - name: Create Release
+        uses: softprops/action-gh-release@v3.0.2
+        with:
+          tag_name: v${{ needs.version.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          generate_release_notes: true
+          body: |
+            Home Assistant App image
+            `${{ env.IMAGE }}:${{ needs.version.outputs.version }}`
+            published at `${{ steps.manifest.outputs.digest }}`.
+          append_body: true
+          files: |
+            sbom-amd64.spdx.json
+            sbom-arm64.spdx.json
+            packaging/THIRD_PARTY_NOTICES.md
+          fail_on_unmatched_files: true
+
+      - name: Verify release tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: v${{ needs.version.outputs.version }}
+          TARGET_SHA: ${{ github.sha }}
+        run: |
+          tag_sha="$(
+            gh api \
+              "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG_NAME" \
+              --jq .object.sha
+          )"
+          if [ "$tag_sha" != "$TARGET_SHA" ]; then
+            echo \
+              "Tag $TAG_NAME points to $tag_sha; expected $TARGET_SHA" \
+              >&2
+            exit 1
+          fi

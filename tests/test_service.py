@@ -150,10 +150,27 @@ class GrowspaceVisionServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(set(body), {"schema_version", "request_id", "error"})
 
     async def test_info_matches_the_normative_contract_fixture(self) -> None:
-        response = await self.client.get("/info", headers=BEARER)
+        """The fixture's `service_version` is an example, not the App version.
+
+        `/info` reports whatever the App was installed as, so the service under
+        test is told the fixture's number rather than the fixture being edited
+        to follow a release. Bumping the App version must not touch a contract
+        fixture the backend vendors.
+        """
+        expected = load_fixture("info.json")
+        app = create_app(
+            ServiceSettings(
+                bearer_token="test-secret",
+                service_version=expected["service_version"],
+            )
+        )
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://vision.test"
+        ) as client:
+            response = await client.get("/info", headers=BEARER)
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), load_fixture("info.json"))
+        self.assertEqual(response.json(), expected)
 
     async def test_models_matches_the_normative_contract_fixture(self) -> None:
         async with self.client_for(ReadyAnalyzer()) as client:
