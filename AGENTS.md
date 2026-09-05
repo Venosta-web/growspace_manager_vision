@@ -12,6 +12,10 @@ and issue tracker; keep coordination artifacts there and service-owned artifacts
   contract. Keep its fixtures and `tests/test_growspace_vision_contract.py` in sync.
 - Record durable service decisions in `docs/adr/`. Keep measurements and exploratory
   code in `docs/research/` and `scratchpad/`; neither is production implementation.
+- Never commit an image derived from the private corpus — no frame, crop, thumbnail,
+  contact sheet or rendered perturbation. Research documents cite aggregate results and
+  point at local artifacts instead. `.gitignore` carries the rule; see
+  [ADR 0008](docs/adr/0008-corpus-derived-imagery-stays-out-of-this-repository.md).
 - Preserve the strict ownership boundary: Vision analyzes one image without history;
   Home Assistant owns scheduling, baselines, comparison, interpretation, and alerts.
 

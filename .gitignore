@@ -213,6 +213,16 @@ tempCodeRunnerFile.py
 # Private-corpus replay artifacts can contain per-frame measurements and thumbnails.
 private-corpus-report/
 
+# The same rule, for the research assets that predate it: no image derived from the
+# private corpus is tracked here — no frame, crop, thumbnail, contact sheet or rendered
+# perturbation. See docs/adr/0008-corpus-derived-imagery-stays-out-of-this-repository.md.
+# App store artwork under growspace_vision/ is deliberately not covered.
+docs/research/assets/
+scratchpad/**/*.jpg
+scratchpad/**/*.jpeg
+scratchpad/**/*.png
+growcam_sog_*.jpg
+
 # ONNX Runtime may attempt to persist a local telemetry session identifier.
 :memory:.ses
 
