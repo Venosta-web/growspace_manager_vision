@@ -15,7 +15,7 @@ from typing import Self
 # This is NOT the model version. That is `model_manifest.json` and
 # `analysis.py`, it identifies the embeddings a user's Baseline Buckets are
 # keyed to, and it must not move when the App version does.
-DEFAULT_SERVICE_VERSION = "1.0.0"
+DEFAULT_SERVICE_VERSION = "1.0.1"
 
 
 @dataclass(frozen=True, slots=True)
