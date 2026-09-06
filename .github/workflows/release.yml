@@ -48,21 +48,24 @@ jobs:
       # A published version is immutable: someone has already installed the
       # bytes behind this tag. A main push that does not bump the version is a
       # no-op rather than a silent substitution, which is also what lets a
-      # README fix merge without a release. That immutability is also why the
-      # probe retries rather than trusting one answer: a version being released
-      # for the first time fails every attempt, but a transient registry error
-      # read as "not published" would recompose a tag someone is already
-      # running.
+      # README fix merge without a release.
+      #
+      # Which is why this asks what the registry actually said rather than
+      # reading any non-zero exit as an absence. Only a confirmed absence
+      # builds; a registry that could not be reached, answered unexpectedly, or
+      # refused the credential fails this job and says so, because the answer
+      # it would otherwise have guessed is the one that republishes a version
+      # someone is already running. The classifier retries the indeterminate
+      # answers itself, so a single blip is not a failed release either.
       - name: Check whether the tag is already published
         id: published
         run: |
-          echo "Probing ${IMAGE}:${VERSION}; a first release fails every attempt."
-          if ./scripts/retry-registry.sh \
-            docker buildx imagetools inspect "${IMAGE}:${VERSION}" \
-            >/dev/null; then
+          state="$(./scripts/registry-tag-state.sh "${IMAGE}:${VERSION}")"
+          if [ "$state" = published ]; then
             echo "${IMAGE}:${VERSION} is already published; skipping"
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
+            echo "${IMAGE}:${VERSION} is not published; releasing it"
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
         env:
