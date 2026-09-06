@@ -48,12 +48,18 @@ jobs:
       # A published version is immutable: someone has already installed the
       # bytes behind this tag. A main push that does not bump the version is a
       # no-op rather than a silent substitution, which is also what lets a
-      # README fix merge without a release.
+      # README fix merge without a release. That immutability is also why the
+      # probe retries rather than trusting one answer: a version being released
+      # for the first time fails every attempt, but a transient registry error
+      # read as "not published" would recompose a tag someone is already
+      # running.
       - name: Check whether the tag is already published
         id: published
         run: |
-          if docker buildx imagetools inspect "${IMAGE}:${VERSION}" \
-            >/dev/null 2>&1; then
+          echo "Probing ${IMAGE}:${VERSION}; a first release fails every attempt."
+          if ./scripts/retry-registry.sh \
+            docker buildx imagetools inspect "${IMAGE}:${VERSION}" \
+            >/dev/null; then
             echo "${IMAGE}:${VERSION} is already published; skipping"
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
@@ -112,7 +118,7 @@ jobs:
         run: |
           tag="${IMAGE}:${VERSION}-${ARCHITECTURE}"
           docker tag "growspace-vision:${VERSION}-${ARCHITECTURE}" "$tag"
-          docker push "$tag"
+          ./scripts/retry-registry.sh docker push "$tag"
           echo "TAG=$tag" >> "$GITHUB_ENV"
       # The SBOM is generated inside the image from the verified build-input
       # manifest, so this reads it out of the artifact rather than recomputing
@@ -158,10 +164,11 @@ jobs:
           while read -r architecture; do
             sources+=("${IMAGE}:${VERSION}-${architecture}")
           done < <(./scripts/app-architectures.sh)
-          docker buildx imagetools create \
+          ./scripts/retry-registry.sh docker buildx imagetools create \
             --tag "${IMAGE}:${VERSION}" "${sources[@]}"
           digest="$(
-            docker buildx imagetools inspect "${IMAGE}:${VERSION}" \
+            ./scripts/retry-registry.sh \
+              docker buildx imagetools inspect "${IMAGE}:${VERSION}" \
               --format '{{ .Manifest.Digest }}'
           )"
           echo "An installed image is traceable to this release by digest."

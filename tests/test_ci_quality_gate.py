@@ -17,6 +17,7 @@ VENDORING_WORKFLOW = ROOT / ".github" / "workflows" / "backend-vendoring.yml"
 VENDORING_SCRIPT = ROOT / "scripts" / "check-backend-vendoring.sh"
 APP_CONFIG = ROOT / "growspace_vision" / "config.yaml"
 ARCHITECTURES_SCRIPT = ROOT / "scripts" / "app-architectures.sh"
+RETRY_SCRIPT = ROOT / "scripts" / "retry-registry.sh"
 
 
 class VisionQualityWorkflowTest(unittest.TestCase):
@@ -268,6 +269,65 @@ class VisionReleaseWorkflowTest(unittest.TestCase):
 
         self.assertEqual(gate["permissions"], {"contents": "read", "packages": "read"})
 
+    def test_every_registry_call_is_retried_rather_than_run_once(self) -> None:
+        """One 500 on a manifest PUT threw a whole release away.
+
+        Run 33997608337 pushed every arm64 layer and then lost the release to a
+        single transient registry error, because `publish` needs `app-images`
+        and a hiccup on one architecture skips the release outright. Every
+        registry call in this workflow is load-bearing and ran exactly once, so
+        this asks the whole set rather than the one call the incident happened
+        to land on.
+        """
+        for name, job in self.jobs.items():
+            for step in job["steps"]:
+                for command in self._commands(step.get("run", "")):
+                    if "docker push" not in command and "imagetools" not in command:
+                        continue
+                    with self.subTest(job=name, command=command):
+                        self.assertIn("./scripts/retry-registry.sh", command)
+
+    @staticmethod
+    def _commands(script: str) -> list[str]:
+        """Rejoin the continuations these commands are wrapped across.
+
+        A registry call and the helper in front of it routinely land on
+        different physical lines, so reading the script line by line would
+        report a wrapped call as unwrapped.
+        """
+        return " ".join(
+            line.strip().removesuffix("\\") + ("\n" if not line.endswith("\\") else "")
+            for line in script.splitlines()
+        ).split("\n")
+
+    def test_exhausting_the_retries_cannot_outlast_a_job_s_timeout(self) -> None:
+        """Attempts are bounded, and the helper says what its bound costs.
+
+        The point of retrying is that a job survives a hiccup, which it does not
+        do if the backoff can push it past the bound
+        `test_every_job_fails_fast_...` asserts. The helper is asked for its own
+        worst case rather than the number being copied here.
+        """
+        budget = int(self._retry_budget_seconds())
+
+        for name, job in self.jobs.items():
+            calls = sum(
+                step.get("run", "").count("./scripts/retry-registry.sh")
+                for step in job["steps"]
+            )
+            with self.subTest(job=name, calls=calls):
+                self.assertLess(budget * calls, job["timeout-minutes"] * 60)
+
+    def _retry_budget_seconds(self) -> str:
+        asked = subprocess.run(
+            [str(RETRY_SCRIPT), "--budget"],
+            capture_output=True,
+            check=True,
+            cwd=ROOT,
+            text=True,
+        )
+        return asked.stdout.strip()
+
     def test_the_repository_carries_no_build_yaml(self) -> None:
         """The pinned base image, ARGs and labels live in the Dockerfile.
 
@@ -277,6 +337,101 @@ class VisionReleaseWorkflowTest(unittest.TestCase):
         """
         self.assertFalse((ROOT / "growspace_vision" / "build.yaml").exists())
         self.assertFalse((ROOT / "build.yaml").exists())
+
+
+class RegistryRetryHelperTest(unittest.TestCase):
+    """Drive the helper the release runs, against a command that is not a registry.
+
+    Asserting that the workflow *mentions* a retry would pass just as happily
+    against a helper that swallowed a real failure or looped forever. So these
+    run `scripts/retry-registry.sh` itself and count what a stub was asked to
+    do, the way the architecture assertions ask `app-architectures.sh` instead
+    of keeping a copy of the mapping.
+    """
+
+    def setUp(self) -> None:
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.attempts = Path(self.directory.name) / "attempts"
+        self.attempts.write_text("0", encoding="utf-8")
+
+    def _stub(self, *, succeeds_on: int, failure_status: int = 1) -> Path:
+        """A command that fails until its `succeeds_on`th call, counting calls.
+
+        `succeeds_on` of 0 never succeeds, which is how the exhausting case
+        proves the helper stops rather than that it stopped this time.
+        """
+        stub = Path(self.directory.name) / "registry-command"
+        stub.write_text(
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            f'attempt=$(( $(cat "{self.attempts}") + 1 ))\n'
+            f'echo "$attempt" > "{self.attempts}"\n'
+            f"if (( attempt == {succeeds_on} )); then\n"
+            '  echo "sha256:0123456789abcdef"\n'
+            "  exit 0\n"
+            "fi\n"
+            f"exit {failure_status}\n",
+            encoding="utf-8",
+        )
+        stub.chmod(0o755)
+        return stub
+
+    def _run(
+        self, stub: Path, attempts: str | None = None
+    ) -> subprocess.CompletedProcess[str]:
+        # The real backoff is the helper's default; waiting it out here would
+        # only measure `sleep`. The attempt count is left at its default unless
+        # a test is about the bound itself.
+        environment = {**os.environ, "VISION_REGISTRY_DELAY_SECONDS": "0"}
+        if attempts is not None:
+            environment["VISION_REGISTRY_ATTEMPTS"] = attempts
+
+        return subprocess.run(
+            [str(RETRY_SCRIPT), str(stub)],
+            capture_output=True,
+            check=False,
+            cwd=ROOT,
+            env=environment,
+            text=True,
+        )
+
+    def _calls(self) -> int:
+        return int(self.attempts.read_text(encoding="utf-8").strip())
+
+    def test_a_transient_failure_is_retried_and_the_log_says_what_it_cost(
+        self,
+    ) -> None:
+        finished = self._run(self._stub(succeeds_on=2))
+
+        self.assertEqual(finished.returncode, 0)
+        self.assertEqual(self._calls(), 2)
+        self.assertIn("succeeded on attempt 2", finished.stderr)
+
+    def test_the_wrapped_command_s_output_is_the_helper_s_output(self) -> None:
+        """`publish` reads the release digest through this helper."""
+        finished = self._run(self._stub(succeeds_on=2))
+
+        self.assertEqual(finished.stdout, "sha256:0123456789abcdef\n")
+
+    def test_a_command_that_never_succeeds_still_fails_the_job(self) -> None:
+        """A masked registry error would cut a release for an image nobody has.
+
+        The default attempt count is read back off the run rather than written
+        down here, so this stays an assertion that the helper retried and then
+        gave up — not a second copy of a number the helper already owns.
+        """
+        finished = self._run(self._stub(succeeds_on=0, failure_status=7))
+
+        self.assertEqual(finished.returncode, 7)
+        self.assertGreater(self._calls(), 1)
+        self.assertIn(f"failed on all {self._calls()} attempts", finished.stderr)
+
+    def test_the_attempts_stop_at_the_bound_they_are_given(self) -> None:
+        finished = self._run(self._stub(succeeds_on=0), attempts="4")
+
+        self.assertNotEqual(finished.returncode, 0)
+        self.assertEqual(self._calls(), 4)
 
 
 class BackendVendoringWorkflowTest(unittest.TestCase):
