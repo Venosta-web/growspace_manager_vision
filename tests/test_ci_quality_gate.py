@@ -18,6 +18,7 @@ VENDORING_SCRIPT = ROOT / "scripts" / "check-backend-vendoring.sh"
 APP_CONFIG = ROOT / "growspace_vision" / "config.yaml"
 ARCHITECTURES_SCRIPT = ROOT / "scripts" / "app-architectures.sh"
 RETRY_SCRIPT = ROOT / "scripts" / "retry-registry.sh"
+TAG_STATE_SCRIPT = ROOT / "scripts" / "registry-tag-state.sh"
 
 
 class VisionQualityWorkflowTest(unittest.TestCase):
@@ -181,17 +182,41 @@ class VisionReleaseWorkflowTest(unittest.TestCase):
 
     def test_a_published_version_is_never_republished(self) -> None:
         """A version is immutable, and a docs-only merge needs no bump."""
-        published = next(
-            step
-            for step in self.jobs["version"]["steps"]
-            if step.get("id") == "published"
-        )
+        published = self._guard_step()
+
         self.assertIn("exists=true", published["run"])
         self.assertEqual(
             self.jobs["app-images"]["if"], "needs.version.outputs.exists != 'true'"
         )
         # `publish` needs `app-images`, which is skipped, so it is skipped too.
         self.assertIn("app-images", self.jobs["publish"]["needs"])
+
+    def test_the_guard_reads_what_the_registry_said_not_whether_it_exited(
+        self,
+    ) -> None:
+        """`exists=false` must mean an absence, not an unanswered question.
+
+        The step used to run `imagetools inspect` with both streams thrown away
+        and treat any non-zero exit as "not published", which makes a 404 and a
+        500 the same answer. `PublishedTagGuardTest` proves the classifier tells
+        them apart; this is the wiring that puts it in the release's path.
+        """
+        published = self._guard_step()
+
+        self.assertIn("./scripts/registry-tag-state.sh", published["run"])
+        self.assertIn("published", published["run"])
+        # Nothing in the step may rescue a non-zero classifier into an answer:
+        # GitHub runs `run:` under `bash -e`, so an indeterminate probe fails
+        # the job only for as long as its status is left alone.
+        self.assertNotIn("|| true", published["run"])
+        self.assertNotIn("continue-on-error", published)
+
+    def _guard_step(self) -> dict[str, object]:
+        return next(
+            step
+            for step in self.jobs["version"]["steps"]
+            if step.get("id") == "published"
+        )
 
     def test_the_version_comes_from_the_file_the_app_store_reads(self) -> None:
         declared = next(
@@ -313,6 +338,10 @@ class VisionReleaseWorkflowTest(unittest.TestCase):
         for name, job in self.jobs.items():
             calls = sum(
                 step.get("run", "").count("./scripts/retry-registry.sh")
+                # The immutability guard retries through the same helper, one
+                # budget deep, so a job that calls it spends the same worst case
+                # as one that wraps a registry command itself.
+                + step.get("run", "").count("./scripts/registry-tag-state.sh")
                 for step in job["steps"]
             )
             with self.subTest(job=name, calls=calls):
@@ -432,6 +461,168 @@ class RegistryRetryHelperTest(unittest.TestCase):
 
         self.assertNotEqual(finished.returncode, 0)
         self.assertEqual(self._calls(), 4)
+
+
+class PublishedTagGuardTest(unittest.TestCase):
+    """Drive the immutability guard against a registry that answers on cue.
+
+    `test_a_published_version_is_never_republished` asserts that `exists=true`
+    skips the image jobs. What was missing is that the value being wired is
+    trustworthy: the probe threw both streams away and read every non-zero exit
+    as an absence, so a 404 and the `500 Internal Server Error` this registry
+    is known to return were the same answer. A docs-only merge landing during a
+    GHCR wobble would have rebuilt a published version from a different commit
+    and pushed over bytes users already had, and the run would have looked
+    ordinary.
+
+    So these run `scripts/registry-tag-state.sh` itself against a stub, the way
+    `RegistryRetryHelperTest` runs the retry helper. The messages the stub
+    answers with are the ones a real `docker buildx imagetools inspect` gives.
+    """
+
+    ABSENT = "ERROR: ghcr.io/venosta-web/growspace-manager-vision:9.9.9: not found"
+    PRESENT = (
+        "Name:      ghcr.io/venosta-web/growspace-manager-vision:1.0.1\n"
+        "MediaType: application/vnd.docker.distribution.manifest.list.v2+json\n"
+        "Digest:    sha256:0123456789abcdef"
+    )
+    SERVER_ERROR = (
+        "ERROR: failed to copy: failed to do request: "
+        "received unexpected HTTP status: 500 Internal Server Error"
+    )
+    UNAUTHORIZED = (
+        "ERROR: failed to authorize: failed to fetch oauth token: "
+        "unexpected status from GET request to https://ghcr.io/token"
+        "?scope=repository%3Avenosta-web%2Fgrowspace-manager-vision%3Apull"
+        "&service=ghcr.io: 401 Unauthorized"
+    )
+
+    def setUp(self) -> None:
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.answers = Path(self.directory.name)
+        self.calls = self.answers / "calls"
+        self.calls.write_text("0", encoding="utf-8")
+
+    def _registry(self, *answers: tuple[int, str]) -> Path:
+        """A stubbed registry giving `answers` in order, repeating the last.
+
+        Repeating rather than running out is what makes the exhausting case
+        prove the guard stops, instead of proving the stub did.
+        """
+        for index, (status, message) in enumerate(answers, start=1):
+            (self.answers / f"answer-{index}").write_text(
+                f"{status}\n{message}\n", encoding="utf-8"
+            )
+
+        stub = self.answers / "imagetools-inspect"
+        stub.write_text(
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            f'call=$(( $(cat "{self.calls}") + 1 ))\n'
+            f'echo "$call" > "{self.calls}"\n'
+            f'answer="{self.answers}/answer-$call"\n'
+            f'[[ -f "$answer" ]] || answer="{self.answers}/answer-{len(answers)}"\n'
+            'status="$(head -1 "$answer")"\n'
+            # A success prints a manifest on stdout; a failure explains itself
+            # on stderr, which is where the classification has to be read from.
+            "if (( status == 0 )); then\n"
+            '  tail -n +2 "$answer"\n'
+            "else\n"
+            '  tail -n +2 "$answer" >&2\n'
+            "fi\n"
+            'exit "$status"\n',
+            encoding="utf-8",
+        )
+        stub.chmod(0o755)
+        return stub
+
+    def _ask(self, *answers: tuple[int, str]) -> subprocess.CompletedProcess[str]:
+        stub = self._registry(*answers)
+        return subprocess.run(
+            [
+                str(TAG_STATE_SCRIPT),
+                "ghcr.io/venosta-web/growspace-manager-vision:1.0.1",
+            ],
+            capture_output=True,
+            check=False,
+            cwd=ROOT,
+            env={
+                **os.environ,
+                "VISION_REGISTRY_INSPECT": str(stub),
+                # The retry is the helper's, and it is asserted elsewhere;
+                # waiting out its backoff here would only measure `sleep`.
+                "VISION_REGISTRY_DELAY_SECONDS": "0",
+            },
+            text=True,
+        )
+
+    def _calls(self) -> int:
+        return int(self.calls.read_text(encoding="utf-8").strip())
+
+    def test_a_version_genuinely_absent_is_reported_absent_at_once(self) -> None:
+        """The case that must still build — and it costs no backoff to reach.
+
+        A version being released for the first time is absent on purpose, so
+        the answer is definitive and asking again would only delay every
+        release by the full retry budget.
+        """
+        asked = self._ask((1, self.ABSENT))
+
+        self.assertEqual(asked.returncode, 0)
+        self.assertEqual(asked.stdout, "absent\n")
+        self.assertEqual(self._calls(), 1)
+
+    def test_a_published_version_is_reported_published(self) -> None:
+        """The no-op case: a docs-only merge to `main` publishes nothing."""
+        asked = self._ask((0, self.PRESENT))
+
+        self.assertEqual(asked.returncode, 0)
+        self.assertEqual(asked.stdout, "published\n")
+
+    def test_a_registry_error_fails_rather_than_claiming_an_absence(self) -> None:
+        """The bug: a 500 read as `exists=false` republishes a live version."""
+        asked = self._ask((1, self.SERVER_ERROR))
+
+        self.assertNotEqual(asked.returncode, 0)
+        self.assertNotIn("absent", asked.stdout)
+        self.assertIn("cannot tell", asked.stderr)
+        # The log has to name what it saw, or a red release says nothing about
+        # why it could not be evaluated.
+        self.assertIn("500 Internal Server Error", asked.stderr)
+
+    def test_a_credential_problem_fails_rather_than_claiming_an_absence(
+        self,
+    ) -> None:
+        """A token that cannot read the package has not proven anything absent."""
+        asked = self._ask((1, self.UNAUTHORIZED))
+
+        self.assertNotEqual(asked.returncode, 0)
+        self.assertNotIn("absent", asked.stdout)
+        self.assertIn("401 Unauthorized", asked.stderr)
+
+    def test_an_indeterminate_answer_is_retried_before_the_guard_gives_up(
+        self,
+    ) -> None:
+        """Failing closed must not turn one blip into a failed release either.
+
+        The same transient error that must never be read as an absence is also
+        the one the retry helper exists for, so the guard asks again before it
+        concludes it cannot tell.
+        """
+        asked = self._ask((1, self.SERVER_ERROR), (1, self.ABSENT))
+
+        self.assertEqual(asked.returncode, 0)
+        self.assertEqual(asked.stdout, "absent\n")
+        self.assertEqual(self._calls(), 2)
+
+    def test_a_registry_that_never_answers_fails_the_version_job(self) -> None:
+        """Bounded: it retries, gives up, and fails rather than guessing."""
+        asked = self._ask((1, self.SERVER_ERROR))
+
+        self.assertNotEqual(asked.returncode, 0)
+        self.assertGreater(self._calls(), 1)
+        self.assertIn(f"failed on all {self._calls()} attempts", asked.stderr)
 
 
 class BackendVendoringWorkflowTest(unittest.TestCase):
