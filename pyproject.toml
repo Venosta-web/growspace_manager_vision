@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "growspace-manager-vision"
-version = "1.0.0"
+version = "1.0.1"
 description = "Stateless local image analysis for Growspace Manager"
 readme = "README.md"
 requires-python = ">=3.13"

@@ -1,5 +1,5 @@
 name: Growspace Vision
-version: "1.0.0"
+version: "1.0.1"
 slug: growspace_vision
 description: Local, stateless image analysis for Growspace Manager
 url: https://github.com/Venosta-web/growspace_manager_vision
