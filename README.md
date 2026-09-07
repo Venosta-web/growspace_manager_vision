@@ -5,6 +5,12 @@ Manager. It analyzes one camera snapshot at a time and returns a model-versioned
 visual embedding or a first-class frame-quality rejection. Home Assistant owns
 scheduling, history, baseline comparison, interpretation, and alerting.
 
+![Home Assistant's Vision evidence tab, showing one Vision Checkup of a demo growspace](assets/screenshots/vision-evidence.png)
+_The service has no interface of its own; this is Home Assistant's. One Vision
+Checkup of the workspace demo tent: a frame the quality gate accepted, the
+embedding ranked against that camera's own last thirty frames, and — beside it,
+never shown to the model — what the sensors were reading at the time._
+
 This repository is the source of truth for the service boundary and its supporting
 research:
 
@@ -89,6 +95,55 @@ growspace-vision
 `GROWSPACE_VISION_SERVICE_VERSION` optionally overrides the reported service release
 version. The process deliberately ignores environmental observations; none belongs in
 the service configuration or request boundary.
+
+## Screenshots
+
+A stateless service is hard to photograph, and a user never sees it directly:
+they see a checkup come back. These captures are the Growspace Manager card's
+**Camera Snapshots → Vision evidence** tab, taken against the workspace hub's dev
+instance with the Vision App running and a seeded checkup history behind it — so
+every embedding, quality signal and model identity on screen came out of a real
+`POST /analyze`. The frames are the demo growspace's rendered tents, never the
+private reference corpus. The capture procedure is the hub's
+[`docs/SCREENSHOTS.md`](https://github.com/Venosta-web/growspace_manager_workspace/blob/main/docs/SCREENSHOTS.md).
+
+### A comparison too close to call
+
+The service returned one 384-value embedding for this frame and nothing else.
+Everything under it is Home Assistant ranking that embedding against the same
+camera's own recent accepted frames: 28 of the 30 sit closer, which is a rank
+rather than a probability, and the separation from the uncertain band is zero, so
+the result is held rather than called. The four provenance rows are what every
+result carries — and they are why `service_version` and the wire's
+`schema_version` are separate numbers: the thresholds behind this verdict move
+with the first and never with the second.
+
+![A borderline visual comparison, with the numbers behind it opened](assets/screenshots/borderline-comparison.png)
+
+### Two channels that cannot see each other
+
+The left column is all this service contributed: one frame, one embedding, no
+sensor data of any kind. The right column is evaluated from environmental
+readings alone and never reaches the model or the image pass. Fusing them is
+Home Assistant's work, and here it fuses to a persistent visual anomaly — which
+says the scene departed from its own recent history across repeated captures, not
+that anything is wrong with the plants. A moved camera, a light change and a
+harvest all read the same way.
+
+![A material scene change beside an active environmental risk, fused into one outcome](assets/screenshots/fusion-outcome.png)
+
+### What a result does not claim
+
+The tab ends on this, and every ledger above carries a caveat of the same kind.
+It is the boundary this repository exists to hold. Baseline State says only whether a camera has enough recent
+history to be compared against — thirty accepted frames for one camera, light
+window, Grow Run, model version and Framing Epoch. It is not evidence that any
+alert policy detects a real symptom, which is what
+[`CONTEXT.md`](CONTEXT.md) means by Plant-Health Calibration and why V1 has none.
+[ADR 0007](docs/adr/0007-production-replay-keeps-an-unintervened-control.md) makes
+both lines in this capture permanent presentation, not a placeholder.
+
+![The scope note: scene-change monitoring only, and no plant-health calibration in V1](assets/screenshots/scope-and-calibration.png)
 
 ## Home Assistant App images
 
