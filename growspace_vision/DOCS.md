@@ -12,6 +12,12 @@ keeps it in its private `/data` storage, and announces its address and that toke
 Assistant through App discovery. Install Growspace Vision, start it, and Growspace Manager
 finds it.
 
+Once it is running, turn checkups on per growspace in the Growspace Manager card: open
+the growspace's **Settings**, go to **Advanced → Vision AI**, pick the growspace's cameras
+and tick **Enable automatic vision checkups**. You need Growspace Manager 1.2.3 or later.
+The [project README](https://github.com/Venosta-web/growspace_manager_vision#readme) covers
+what to expect and troubleshooting.
+
 The service is available only on Home Assistant's internal App network at port `8099`; it
 deliberately publishes no host port and requests no Home Assistant, Supervisor, device, or
 filesystem privileges.
