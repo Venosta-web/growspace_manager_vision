@@ -37,3 +37,21 @@ Assistant's vendored copy still matches the contract this repository owns:
 
 Follow the workspace hub's cross-repo guidance when a change also affects the Home
 Assistant integration or Lovelace card.
+
+## Dependency updates
+
+Dependabot checks GitHub Actions, the digest-pinned Docker base image, the
+`test` optional dependencies, and the pinned build backend each Monday. Its
+version-update PRs target `main` and use the `chore(deps)` commit prefix.
+
+Runtime dependencies are deliberately ignored. Their pins in `pyproject.toml`
+are repeated in `packaging/requirements-runtime.txt` and the per-architecture
+hash locks under `packaging/locks/`; changing only the Python manifest would
+leave the offline image inputs inconsistent. Update those together through the
+coordinated runtime-dependency update. Dependabot also does not change the App version in
+`growspace_vision/config.yaml` or the model version in
+`src/growspace_vision/model_manifest.json`; both require release decisions.
+
+The Quality workflow builds and smokes both App architectures on every PR,
+including Dependabot PRs. A new base image must still install the locked Debian
+packages; that build and smoke check is the compatibility gate for image bumps.
