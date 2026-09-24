@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling==1.27.0"]
+requires = ["hatchling==1.32.4"]
 build-backend = "hatchling.build"
 
 [project]
@@ -25,8 +25,8 @@ test = [
   "httpx==0.28.1",
   "mypy==2.3.1",
   "pyyaml==6.0.3",
-  "ruff==0.16.5",
-  "types-PyYAML==6.0.12.20260906",
+  "ruff==0.16.8",
+  "types-PyYAML==6.0.12.20250915",
 ]
 
 [project.scripts]

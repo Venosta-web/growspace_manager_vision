@@ -48,7 +48,9 @@ Runtime dependencies are deliberately ignored. Their pins in `pyproject.toml`
 are repeated in `packaging/requirements-runtime.txt` and the per-architecture
 hash locks under `packaging/locks/`; changing only the Python manifest would
 leave the offline image inputs inconsistent. Update those together through the
-coordinated runtime-dependency update. Dependabot also does not change the App version in
+coordinated runtime-dependency update. The pip scan excludes `packaging/` so
+transitive runtime packages in its requirements file stay in that update too.
+Dependabot also does not change the App version in
 `growspace_vision/config.yaml` or the model version in
 `src/growspace_vision/model_manifest.json`; both require release decisions.
 
