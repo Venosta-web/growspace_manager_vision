@@ -1,0 +1,41 @@
+version: 2
+
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: main
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: chore(deps)
+
+  - package-ecosystem: docker
+    directory: /
+    target-branch: main
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: chore(deps)
+
+  - package-ecosystem: pip
+    directory: /
+    target-branch: main
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: chore(deps)
+    # Runtime pins also live in packaging/requirements-runtime.txt and both
+    # architecture lock files. A pyproject.toml-only bump would make the App
+    # manifest disagree with the hashed, offline build inputs. Update those
+    # together through the runtime-dependency workflow instead.
+    ignore:
+      - dependency-name: anyio
+      - dependency-name: fastapi
+      - dependency-name: numpy
+      - dependency-name: onnxruntime
+      - dependency-name: pillow
+      - dependency-name: python-multipart
+      - dependency-name: uvicorn
