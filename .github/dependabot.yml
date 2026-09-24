@@ -27,6 +27,10 @@ updates:
       day: monday
     commit-message:
       prefix: chore(deps)
+    # The hashed runtime closure is a pip requirements file below packaging/.
+    # Dependabot must scan pyproject.toml for test tools and hatchling only.
+    exclude-paths:
+      - packaging/**
     # Runtime pins also live in packaging/requirements-runtime.txt and both
     # architecture lock files. A pyproject.toml-only bump would make the App
     # manifest disagree with the hashed, offline build inputs. Update those
