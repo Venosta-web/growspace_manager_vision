@@ -1,4 +1,4 @@
-FROM ghcr.io/home-assistant/base-debian:trixie-2026.08.0@sha256:01e153da2c2579f2cf5010901da7bc31b1dd035921ea46ccaff22e521efa74a7
+FROM ghcr.io/home-assistant/base-debian:trixie-2026.10.0@sha256:a7f262f331e2a4f4e3e02173da932a8d8c26f3d5758a5f59903d46de1f728e5b
 
 ARG TARGETARCH
 ARG SOURCE_DATE_EPOCH=1788134400
