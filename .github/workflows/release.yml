@@ -179,7 +179,7 @@ jobs:
         env:
           VERSION: ${{ needs.version.outputs.version }}
       - name: Download the per-architecture SBOMs
-        uses: actions/download-artifact@v8.0.1
+        uses: actions/download-artifact@v8.0.2
         with:
           pattern: sbom-*
           merge-multiple: true
